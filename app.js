@@ -3,15 +3,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Octree } from 'three/addons/math/Octree.js';
 import { Capsule } from 'three/addons/math/Capsule.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const FT = 0.3048;
 const HEIGHT = 6 * FT;
 const EYE = (5 + 2 / 12) * FT;
 const RADIUS = (11 / 12) * FT;
 const testing = new URLSearchParams(location.search).get('test') === '1';
-const viewRenderEnabled = window.DREAM_HOME_VIEW_RENDER_ENABLED !== false;
-if (!viewRenderEnabled) document.body.classList.add('view-render-disabled');
 const hasTouchHardware = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
 const mobileLike = hasTouchHardware || Math.min(innerWidth, innerHeight) <= 600;
 const GAMEPAD_DEADZONE = 0.16;
@@ -109,19 +106,11 @@ let fireballCooldown = 0;
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.04, 220);
 camera.rotation.order = 'YXZ';
 
-if (!mobileLike) {
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const env = new RoomEnvironment();
-  scene.environment = pmrem.fromScene(env, 0.04).texture;
-  scene.environmentIntensity = 0.32;
-  env.dispose();
-  pmrem.dispose();
-} else {
-  // Keep mobile startup within a smaller GPU budget. The hemisphere and sun
-  // lights below provide a readable fallback without a PMREM environment.
-  scene.environment = null;
-  scene.environmentIntensity = 0;
-}
+// Keep the browser viewer's lighting deterministic and lightweight. The
+// authored hemisphere and directional lights below provide the readable global
+// fill we need; Blender remains the source for presentation render lighting.
+scene.environment = null;
+scene.environmentIntensity = 0;
 
 const hemisphere = new THREE.HemisphereLight(0xe4f0ff, 0xa09b7f, mobileLike ? 2.5 : 2.1);
 scene.add(hemisphere);
@@ -362,44 +351,7 @@ let sourceCollisionTriangles = 0;
 let collisionChunksIndexed = 0;
 let collisionProgressHideTimer = null;
 let lastHit = null;
-let recording = false;
-let recordingSamples = [];
-let recordingDuration = 0;
-let recordingAccumulator = 0;
-let lastSavedPath = null;
-let renderViewActive = false;
-let renderViewWasPlaying = false;
-let renderViewJob = null;
-let renderViewPollTimer = null;
 let hudToastTimer = null;
-const PATH_SAMPLE_INTERVAL = 0.1;
-const PATH_STORAGE_KEY = 'dream-home.walkthrough-path.v1';
-const VIEW_STATE_FIELDS = [
-  ['labels', 'labels'],
-  ['id-labels', 'ids'],
-  ['area-labels', 'areas'],
-  ['square-grid', 'square_grid'],
-  ['radial-grid', 'radial_grid'],
-  ['height-grid', 'height_grid'],
-  ['wall-lengths', 'wall_lengths'],
-  ['door-canopies', 'door_canopies'],
-  ['ring-awning', 'ring_awning'],
-  ['roof-cutaway', 'roof_cutaway'],
-  ['bare-shell', 'bare_shell'],
-  ['furniture-toggle', 'furniture_visible'],
-  ['projectiles-toggle', 'projectiles_enabled'],
-];
-
-function captureViewState() {
-  const state = {};
-  for (const [id, key] of VIEW_STATE_FIELDS) {
-    state[key] = Boolean(document.querySelector(`#${id}`)?.checked);
-  }
-  state.time_of_day = Number(document.querySelector('#time-of-day')?.value ?? 15);
-  state.exterior_finish = document.querySelector('#exterior-finish')?.value || 'plain';
-  state.roof_cutaway_height_feet = ROOF_CUTAWAY_HEIGHT / FT;
-  return state;
-}
 
 function timestampForFile() {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -448,38 +400,6 @@ function captureBrowserScreenshot() {
   }
 }
 
-function currentViewRenderRequest() {
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  return {
-    schema: 'dream-home-view-render/v1',
-    camera_position_ft: [
-      +(camera.position.x / FT).toFixed(5),
-      +(camera.position.y / FT).toFixed(5),
-      +(-camera.position.z / FT).toFixed(5),
-    ],
-    camera_forward: [
-      +forward.x.toFixed(6),
-      +forward.y.toFixed(6),
-      +(-forward.z).toFixed(6),
-    ],
-    field_of_view_degrees: camera.fov,
-    viewport_aspect_ratio: innerWidth / Math.max(1, innerHeight),
-    view_state: captureViewState(),
-    width: 640,
-    height: Math.max(320, Math.min(640, Math.round(640 * innerHeight / Math.max(1, innerWidth) / 2) * 2)),
-  };
-}
-
-function setRenderViewStatus(message, readyState = false) {
-  const status = document.querySelector('#render-view-status');
-  if (status) status.textContent = message;
-  const image = document.querySelector('#render-view-image');
-  if (image && !readyState) image.hidden = true;
-  const download = document.querySelector('#render-view-download');
-  if (download && !readyState) download.hidden = true;
-}
-
 function requestPointerCapture() {
   try {
     canvas.requestPointerLock()?.catch(() => {
@@ -489,93 +409,6 @@ function requestPointerCapture() {
   } catch {
     dragFallback = true;
     document.querySelector('#hint').textContent = 'Hold mouse to look · Esc releases mouse';
-  }
-}
-
-function closeRenderedView(resumeWalking = renderViewWasPlaying) {
-  if (!renderViewActive) return;
-  renderViewActive = false;
-  renderViewJob = null;
-  clearTimeout(renderViewPollTimer);
-  renderViewPollTimer = null;
-  document.body.classList.remove('render-view-open');
-  const overlay = document.querySelector('#render-view-overlay');
-  if (overlay) overlay.hidden = true;
-  if (ready) {
-    mode = 'playing';
-    menu.hidden = true;
-    hud.hidden = false;
-    document.body.classList.add('playing');
-    document.body.classList.remove('hud-options-open');
-    lastTime = performance.now();
-    canvas.focus();
-    if (resumeWalking) requestPointerCapture();
-    else dragFallback = true;
-  }
-  render();
-}
-
-async function pollRenderedView() {
-  if (!renderViewActive || !renderViewJob) return;
-  try {
-    const response = await fetch(`${renderViewJob.status_url}?t=${Date.now()}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`status HTTP ${response.status}`);
-    const status = await response.json();
-    if (status.state === 'complete') {
-      const image = document.querySelector('#render-view-image');
-      const download = document.querySelector('#render-view-download');
-      if (image) {
-        image.src = `${status.image_url}?t=${Date.now()}`;
-        image.hidden = false;
-      }
-      if (download) {
-        download.href = status.download_url;
-        download.download = `dream-home-rendered-view-${timestampForFile()}.png`;
-        download.hidden = false;
-      }
-      setRenderViewStatus(`Rendered with Eevee in ${Number(status.render_seconds || 0).toFixed(1)} seconds.`, true);
-      return;
-    }
-    if (status.state === 'error') {
-      setRenderViewStatus(`Render failed: ${status.message || 'unknown Blender error'}`);
-      return;
-    }
-    setRenderViewStatus(status.message || 'Blender is rendering this view…');
-    renderViewPollTimer = setTimeout(pollRenderedView, 700);
-  } catch (error) {
-    setRenderViewStatus(`Waiting for the local render worker… ${error.message}`);
-    renderViewPollTimer = setTimeout(pollRenderedView, 1200);
-  }
-}
-
-async function requestRenderedView() {
-  if (!viewRenderEnabled || !ready || renderViewActive) return;
-  renderViewActive = true;
-  renderViewWasPlaying = mode === 'playing';
-  document.body.classList.add('render-view-open');
-  document.body.classList.remove('hud-options-open');
-  const overlay = document.querySelector('#render-view-overlay');
-  if (overlay) overlay.hidden = false;
-  const image = document.querySelector('#render-view-image');
-  if (image) { image.hidden = true; image.removeAttribute('src'); }
-  const download = document.querySelector('#render-view-download');
-  if (download) download.hidden = true;
-  setRenderViewStatus('Starting the local Eevee render…');
-  if (document.pointerLockElement === canvas) document.exitPointerLock();
-  render();
-  try {
-    const response = await fetch('/render-view', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(currentViewRenderRequest()),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
-    renderViewJob = result;
-    setRenderViewStatus('Blender is rendering this view…');
-    pollRenderedView();
-  } catch (error) {
-    setRenderViewStatus(`Could not start the render: ${error.message}`);
   }
 }
 
@@ -659,7 +492,6 @@ function updateTouchActionButtons() {
   const jump = document.querySelector('#touch-jump');
   const descend = document.querySelector('#touch-descend');
   const run = document.querySelector('#touch-run');
-  const record = document.querySelector('#touch-record');
   if (jump) {
     jump.textContent = flying ? 'UP' : 'JUMP';
     jump.setAttribute('aria-label', flying ? 'Ascend while flying' : 'Jump; double-tap to toggle flight');
@@ -668,12 +500,6 @@ function updateTouchActionButtons() {
   if (run) {
     run.textContent = runningToggled ? 'RUN' : 'WALK';
     run.setAttribute('aria-label', `Toggle run; currently ${runningToggled ? 'running' : 'walking'}`);
-  }
-  if (record) {
-    record.textContent = recording ? 'STOP' : 'REC';
-    record.classList.toggle('recording', recording);
-    record.setAttribute('aria-label', recording ? 'Stop and save path recording' : 'Start path recording');
-    record.setAttribute('aria-pressed', String(recording));
   }
 }
 
@@ -1046,106 +872,6 @@ function handleProjectileInput(gamepad, dt) {
   }
 }
 
-function currentPathSample(timeSeconds) {
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  return {
-    t_seconds: +timeSeconds.toFixed(3),
-    feet_position_ft: [
-      +(capsule.start.x / FT).toFixed(4),
-      +((capsule.start.y - RADIUS) / FT).toFixed(4),
-      +(-capsule.start.z / FT).toFixed(4),
-    ],
-    camera: {
-      yaw_radians: +yaw.toFixed(6),
-      pitch_radians: +pitch.toFixed(6),
-      // This is in the same +X east, +Y up, +Z north convention as the path position.
-      forward: [+forward.x.toFixed(6), +forward.y.toFixed(6), +(-forward.z).toFixed(6)],
-    },
-    flying,
-  };
-}
-
-function updateRecordingUI(message = null) {
-  const badge = document.querySelector('#recording-badge');
-  const count = document.querySelector('#recording-count');
-  const panel = document.querySelector('#recording-panel-status');
-  if (badge) badge.hidden = !recording;
-  if (count) count.textContent = `${recordingSamples.length} samples`;
-  if (panel) {
-    panel.textContent = message || (recording
-      ? `Recording path · ${recordingSamples.length} samples · R stops and saves it.`
-      : lastSavedPath ? `Saved ${lastSavedPath.samples} samples. R starts a new path.`
-        : 'R starts a new path recording; R stops and saves it.');
-  }
-}
-
-function startRecording() {
-  if (!ready || recording) return;
-  recording = true;
-  recordingSamples = [];
-  recordingDuration = 0;
-  recordingAccumulator = 0;
-  recordingSamples.push(currentPathSample(0));
-  updateRecordingUI();
-  render();
-}
-
-function stopRecording() {
-  if (!recording) return lastSavedPath;
-  recording = false;
-  recordingSamples.push(currentPathSample(recordingDuration));
-  const payload = {
-    schema: 'dream-home-walkthrough-path/v1',
-    model: 'Dream Home v07',
-    recorded_at: new Date().toISOString(),
-    units: 'feet',
-    coordinate_system: '+X east, +Y up, +Z north; courtyard center is origin',
-    character: {
-      height_feet: 6,
-      eye_height_feet: EYE / FT,
-      field_of_view_degrees: camera.fov,
-      walking_speed_mps: 3.5,
-      running_speed_mps: 7,
-    },
-    // Preserve every HUD control alongside the path so a renderer can
-    // reproduce the state in which the owner recorded the walkthrough.
-    view_state: captureViewState(),
-    sample_interval_seconds: PATH_SAMPLE_INTERVAL,
-    duration_seconds: +recordingDuration.toFixed(3),
-    samples: recordingSamples,
-  };
-  const serialized = JSON.stringify(payload, null, 2);
-  try { localStorage.setItem(PATH_STORAGE_KEY, serialized); } catch (error) { console.warn('[Dream Home] Could not cache path:', error); }
-  const stamp = payload.recorded_at.replace(/[:.]/g, '-');
-  try {
-    const blob = new Blob([serialized], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `dream-home-walkthrough-${stamp}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  } catch (error) { console.warn('[Dream Home] Could not download path:', error); }
-  lastSavedPath = { samples: recordingSamples.length, duration_seconds: payload.duration_seconds, recorded_at: payload.recorded_at };
-  updateRecordingUI(`Saved ${recordingSamples.length} samples (${payload.duration_seconds.toFixed(1)} seconds). R starts a new path.`);
-  render();
-  return payload;
-}
-
-function advanceRecording(dt) {
-  if (!recording) return;
-  recordingAccumulator += dt;
-  while (recordingAccumulator >= PATH_SAMPLE_INTERVAL) {
-    recordingAccumulator -= PATH_SAMPLE_INTERVAL;
-    recordingDuration += PATH_SAMPLE_INTERVAL;
-    recordingSamples.push(currentPathSample(recordingDuration));
-  }
-  updateRecordingUI();
-}
-
 function toggleHudOptions() {
   if (!ready) return;
   document.body.classList.toggle('hud-options-open');
@@ -1154,9 +880,7 @@ function toggleHudOptions() {
 
 const keyboardMap = document.querySelector('.keyboard-map');
 if (keyboardMap && !keyboardMap.textContent.includes('Create')) {
-  keyboardMap.insertAdjacentHTML('beforeend', viewRenderEnabled
-    ? '<span>Create / C screenshot&nbsp;&nbsp; V Eevee view render</span>'
-    : '<span>Create / C screenshot</span>');
+  keyboardMap.insertAdjacentHTML('beforeend', '<span>Create / C screenshot</span>');
 }
 
 const keyboardCheckboxes = {
@@ -1280,14 +1004,11 @@ document.querySelector('#projectiles-toggle').addEventListener('change', event =
   setProjectilesEnabled(event.target.checked);
 });
 
-document.querySelector('#render-view-btn').addEventListener('click', requestRenderedView);
-document.querySelector('#render-view-close').addEventListener('click', () => closeRenderedView(true));
-
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement === canvas) {
     dragFallback = false;
-    document.querySelector('#hint').textContent = `H / Options · C screenshot${viewRenderEnabled ? ' · V render' : ''}`;
-  } else if (mode === 'playing' && !renderViewActive) {
+    document.querySelector('#hint').textContent = 'H / Options · C screenshot';
+  } else if (mode === 'playing') {
     dragFallback = true;
     document.querySelector('#hint').textContent = 'Hold mouse to look · Esc releases mouse';
   }
@@ -1415,13 +1136,6 @@ document.querySelector('#touch-hud')?.addEventListener('click', () => {
   if (touchControlsActive()) toggleHudOptions();
 });
 
-document.querySelector('#touch-record')?.addEventListener('click', () => {
-  if (!touchControlsActive()) return;
-  if (recording) stopRecording();
-  else startRecording();
-  updateTouchActionButtons();
-});
-
 const movement = new Set([
   'KeyW',
   'KeyA',
@@ -1440,8 +1154,7 @@ const movement = new Set([
 
 document.addEventListener('keydown', e => {
   if (e.code === 'Escape') {
-    if (renderViewActive) closeRenderedView(true);
-    else if (document.pointerLockElement === canvas) document.exitPointerLock();
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
     return;
   }
 
@@ -1453,29 +1166,9 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  if (e.code === 'KeyV' && !e.repeat) {
-    e.preventDefault();
-    if (viewRenderEnabled) requestRenderedView();
-    return;
-  }
-
-  if (renderViewActive && movement.has(e.code)) {
-    e.preventDefault();
-    closeRenderedView(true);
-    keys.add(e.code);
-    return;
-  }
-
   if (e.code === 'KeyH' && !e.repeat) {
     e.preventDefault();
     toggleHudOptions();
-    return;
-  }
-
-  if (e.code === 'KeyR' && !e.repeat) {
-    e.preventDefault();
-    if (recording) stopRecording();
-    else startRecording();
     return;
   }
 
@@ -1497,7 +1190,6 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  if (renderViewActive) return;
   if (mode !== 'playing') return;
   if (movement.has(e.code)) e.preventDefault();
 
@@ -1545,16 +1237,7 @@ function step(dt) {
   if (!ready) return;
   const gamepad = pollGamepad();
   if (gamepad.screenshotPressed) captureBrowserScreenshot();
-  if (gamepad.hudPressed && !renderViewActive) toggleHudOptions();
-  if (renderViewActive) {
-    const moving = Math.abs(gamepad.forward) > 0.25
-      || Math.abs(gamepad.strafe) > 0.25
-      || Math.abs(gamepad.lookX) > 0.25
-      || Math.abs(gamepad.lookY) > 0.25
-      || gamepad.jumpHeld;
-    if (moving) closeRenderedView(true);
-    return;
-  }
+  if (gamepad.hudPressed) toggleHudOptions();
   if (mode !== 'playing') return;
 
   gamepadRunHeld = gamepad.runHeld;
@@ -1681,11 +1364,10 @@ function step(dt) {
 
   syncCamera();
   updateProjectiles(dt);
-  advanceRecording(dt);
   document.querySelector('#hint').textContent = flying
-    ? `Flying · Space ↑ · Ctrl/Circle ↓ · C screenshot${viewRenderEnabled ? ' · V render' : ''}`
+    ? 'Flying · Space ↑ · Ctrl/Circle ↓ · C screenshot'
     : dragFallback ? 'Mouse look · double-W to run · H/Options HUD · C screenshot'
-      : `Double-W to run · H/Options HUD · C screenshot${viewRenderEnabled ? ' · V render' : ''}`;
+      : 'Double-W to run · H/Options HUD · C screenshot';
 }
 
 function updateMovementBadge() {
@@ -1792,14 +1474,6 @@ window.render_game_to_text = () => JSON.stringify({
   coordinate_system: 'Meters: +X east, +Y up, -Z north; courtyard center is origin',
   mouse_locked: document.pointerLockElement === canvas,
   hud_options_open: document.body.classList.contains('hud-options-open'),
-  path_recording: {
-    active: recording,
-    sample_count: recordingSamples.length,
-    duration_seconds: +recordingDuration.toFixed(3),
-    sample_interval_seconds: PATH_SAMPLE_INTERVAL,
-    storage_key: PATH_STORAGE_KEY,
-    last_saved: lastSavedPath,
-  },
   labels: document.querySelector('#labels').checked,
   view: viewTools ? { ...viewTools.state, projectiles_enabled: projectilesEnabled } : viewTools?.state,
   projectiles_enabled: projectilesEnabled,
@@ -1819,10 +1493,6 @@ window.render_game_to_text = () => JSON.stringify({
       speed_mps: +mesh.userData.velocity.length().toFixed(3),
     })) : undefined,
   },
-  render_view: {
-    active: renderViewActive,
-    job_id: renderViewJob?.job_id || null,
-  },
   roof_cutaway: roofCutaway,
   roof_cutaway_height_feet: ROOF_CUTAWAY_HEIGHT / FT,
   roof_cutaway_drop_through: cutawayDropThrough,
@@ -1835,7 +1505,7 @@ window.render_game_to_text = () => JSON.stringify({
   reference_counts: viewTools?.counts,
   room_id: viewTools?.currentRoom(capsule.start.x, capsule.start.z)?.id || null,
   visible_exterior_finishes: model ? (() => {const names=[];model.traverse(o=>{if(o.userData.group==='15' && o.visible) names.push(o.userData.finish_option);});return names;})() : [],
-  lighting: {mode:'global walkthrough lighting',ambient_enabled:true,environment_lighting:true,fixture_only_blender:true},
+  lighting: {mode:'global walkthrough lighting',ambient_enabled:true,environment_lighting:false,fixture_only_blender:true},
   renderer_memory: renderer.info.memory,
   collision_triangles: totalCollisionTriangles,
   collision_profile: collisionProfile,
@@ -1883,11 +1553,8 @@ if (testing) {
       syncCamera();
       render();
     },
-    startRecording,
-    stopRecording,
     toggleHudOptions,
     toggleCheckbox,
-    getRecordedPath: () => recordingSamples.slice(),
     setGamepad: state => {
       testGamepad = state;
       if (!state) {

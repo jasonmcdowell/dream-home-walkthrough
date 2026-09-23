@@ -1,5 +1,5 @@
 {
-  "version": "v07",
+  "version": "torus-home-1.0",
   "defaults": {
     "ring_awning": false,
     "door_canopies": true

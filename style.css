@@ -5,9 +5,6 @@
 #view-controls{max-height:calc(100vh - 76px);overflow-y:auto}
 #view-controls .keyboard-map{font-size:10px;line-height:1.55;color:#748277;border-top:1px solid #d8ded5;border-bottom:1px solid #d8ded5;padding:8px 0;margin:8px 0 10px}
 #view-controls kbd{margin-left:auto;min-width:16px;text-align:center;border:1px solid #b8c5ba;border-radius:4px;background:#eef2eb;color:#53665a;font:600 10px ui-monospace,monospace;padding:1px 4px}
-#recording-panel-status{font-size:10px;line-height:1.45;color:#587565;border-top:1px solid #d8ded5;padding-top:9px;margin-top:12px}
-#recording-badge{position:absolute;left:23px;top:61px;background:#5d291dcc;border:1px solid #ffddaa66;border-radius:20px;padding:6px 10px;font-size:10px;letter-spacing:.04em;backdrop-filter:blur(8px)}
-#recording-badge[hidden]{display:none}
 body.playing:not(.hud-options-open) #view-controls{opacity:0;pointer-events:none;transform:translateX(10px)}
 body.playing #view-controls{transition:opacity .18s ease,transform .18s ease}
 body.playing.hud-options-open #view-controls{opacity:.94;pointer-events:auto;transform:none;background:#f9f7f0e8}
@@ -18,22 +15,8 @@ body.playing.hud-options-open #view-controls{opacity:.94;pointer-events:auto;tra
 /* Compact movement feedback stays visible while the translucent view panel is closed. */
 #movement-mode{position:absolute;left:23px;top:61px;background:#213529b5;border:1px solid #ffffff2c;border-radius:20px;padding:6px 11px;font-size:10px;font-weight:700;letter-spacing:.11em;backdrop-filter:blur(8px);color:#e3f0df}
 #movement-mode.running{background:#80521dcc;border-color:#ffdf9b80;color:#fff1cf}
-#recording-badge{top:96px}
 #capture-toast{position:absolute;left:23px;top:131px;background:#213529d9;border:1px solid #ffffff35;border-radius:18px;padding:6px 10px;font-size:10px;backdrop-filter:blur(8px)}
 #capture-toast[hidden]{display:none}
-.render-view-launch{position:fixed;z-index:4;right:20px;bottom:20px;width:auto;padding:10px 14px;font-size:11px;background:#345a47e8;box-shadow:0 5px 18px #14251a35}
-body.playing:not(.hud-options-open) .render-view-launch{opacity:0;pointer-events:none;transform:translateY(8px)}
-#render-view-overlay{position:fixed;z-index:20;inset:0;display:flex;align-items:center;justify-content:center;padding:28px;background:#08130dcc;backdrop-filter:blur(5px)}
-#render-view-overlay[hidden]{display:none}
-body.view-render-disabled .render-only{display:none!important}
-#render-view-card{width:min(960px,92vw);max-height:94vh;overflow:auto;background:#f9f7f0f5;color:#30433a;border:1px solid #ffffffaa;border-radius:16px;padding:16px;box-shadow:0 14px 50px #0008}
-#render-view-header{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:12px}
-#render-view-header strong{font-size:15px;letter-spacing:.03em}
-#render-view-header button{width:auto;padding:8px 12px;font-size:11px;background:#345a47}
-#render-view-image{display:block;width:100%;height:auto;border-radius:9px;background:#dfe6e0;box-shadow:0 2px 12px #14251a22}
-#render-view-status{font-size:12px;color:#5a6c60;margin:12px 0 7px}
-#render-view-download{font-size:12px;color:#345a47}
-.render-view-help{font-size:10px;color:#819084;margin:12px 0 0}
 
 #collision-progress{position:fixed;z-index:5;left:50%;bottom:18px;transform:translateX(-50%);display:grid;gap:5px;width:min(360px,calc(100vw - 32px));padding:9px 12px;border:1px solid #ffffffb8;border-radius:10px;background:#f9f7f0ed;box-shadow:0 4px 18px #14251a26;color:#43564b;font-size:10px;pointer-events:none;backdrop-filter:blur(8px)}
 #collision-progress[hidden]{display:none}
@@ -51,8 +34,6 @@ body.view-render-disabled .render-only{display:none!important}
 #touch-buttons button:active{background:#557b60dc;transform:scale(.97)}
 #touch-buttons #touch-jump{min-height:62px;background:#345a47d9;font-size:11px}
 #touch-buttons #touch-descend{background:#80521dcc}
-#touch-buttons #touch-record{grid-column:1/-1;min-height:42px;background:#5d291dcc}
-#touch-buttons #touch-record.recording{background:#a33d30e8;box-shadow:0 0 0 2px #ffd4b880,0 3px 12px #0003}
 body.touch-walkthrough #world{touch-action:none}
 body.touch-walkthrough #hint{display:none}
 body.touch-walkthrough #collision-progress{bottom:max(195px,calc(env(safe-area-inset-bottom) + 185px))}
@@ -61,7 +42,6 @@ body.touch-walkthrough #collision-progress{bottom:max(195px,calc(env(safe-area-i
   #touch-buttons{grid-template-columns:repeat(2,minmax(55px,68px));gap:6px;right:max(12px,env(safe-area-inset-right))}
   #touch-buttons button{min-height:46px;font-size:9px}
   #touch-buttons #touch-jump{min-height:56px}
-  #touch-buttons #touch-record{min-height:40px}
   #touch-help{font-size:8px;left:max(12px,env(safe-area-inset-left));bottom:calc(max(18px,env(safe-area-inset-bottom)) + min(34vw,128px) + 5px)}
 }
 @media(max-height:600px){
@@ -92,7 +72,6 @@ body.touch-walkthrough #collision-progress{bottom:max(195px,calc(env(safe-area-i
 #view-controls .study-row select{padding:5px;font-size:9px}
 #view-controls .time-label{font-size:9px;margin:6px 0 1px}
 #view-controls #time-of-day{margin:0;height:14px}
-#view-controls #recording-panel-status{font-size:9px;line-height:1.25;padding-top:6px;margin-top:7px}
 #view-controls .panel-links{display:flex;gap:10px;align-items:center}
 #view-controls .panel-links a{font-size:9px;margin-top:6px}
 

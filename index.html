@@ -7,7 +7,6 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
   <script type="importmap">{"imports":{"three":"./vendor/build/three.module.js","three/addons/":"./vendor/addons/"}}</script>
-<script>window.DREAM_HOME_VIEW_RENDER_ENABLED = false;</script>
 </head>
 <body>
   <canvas id="world" aria-label="First-person dream home walkthrough"></canvas>
@@ -18,10 +17,9 @@
 
   <div id="hud" hidden>
     <div class="place"><span class="dot"></span><span id="room">Living room</span></div>
-    <span id="hint">H / Options · C screenshot · V render</span>
+    <span id="hint">H / Options · C screenshot</span>
     <span id="movement-mode" aria-live="polite">WALK</span>
     <span id="gamepad-status" hidden>Controller not detected</span>
-    <span id="recording-badge" hidden>● REC <span id="recording-count">0 samples</span></span>
     <span id="capture-toast" hidden role="status"></span>
     <div id="crosshair">+</div>
   </div>
@@ -37,13 +35,12 @@
       <button id="touch-run" type="button" aria-label="Toggle running">WALK</button>
       <button id="touch-descend" type="button" aria-label="Descend while flying">DOWN</button>
       <button id="touch-jump" type="button" aria-label="Jump; double-tap to toggle flight">JUMP</button>
-      <button id="touch-record" type="button" aria-label="Start path recording">REC</button>
     </div>
   </div>
 
   <main id="menu">
     <section class="panel loading-panel">
-      <p class="eyebrow">DREAM HOME / V07</p>
+      <p class="eyebrow">DREAM HOME / TORUS HOME 1.0</p>
       <h1>Loading the house.</h1>
       <p class="intro">Preparing the living-room start point and collision map.</p>
       <p id="loading-status" role="status">Loading your Blender model</p>
@@ -51,7 +48,7 @@
   </main>
 
   <aside id="view-controls" hidden aria-label="Unified walkthrough controls">
-    <p class="eyebrow">DREAM HOME / V07</p>
+    <p class="eyebrow">DREAM HOME / TORUS HOME 1.0</p>
     <h2>Walkthrough controls</h2>
     <p class="unified-intro">Starts in the living room · six-foot character · eyes at 5′2″.</p>
     <dl class="controls compact-controls">
@@ -61,9 +58,7 @@
       <dt>Shift / L3 / L1</dt><dd>Run · L1 toggles</dd>
       <dt>Ctrl / Circle</dt><dd>Descend in flight</dd>
       <dt>H / Options</dt><dd>Toggle this panel</dd>
-      <dt>R</dt><dd>Record path</dd>
       <dt>Create / C</dt><dd>Screenshot</dd>
-      <dt class="render-only">V</dt><dd class="render-only">Eevee view render</dd>
       <dt>Esc / F</dt><dd>Release mouse / fullscreen</dd>
     </dl>
     <p id="gamepad-menu-status" class="controller-status" aria-live="polite">Controller: checking…</p>
@@ -96,20 +91,8 @@
     </div>
     <label class="time-label" for="time-of-day">Time of day <output id="clock">3:00 pm</output></label>
     <input id="time-of-day" type="range" min="0" max="24" step="0.25" value="15">
-    <div id="recording-panel-status" role="status">R starts a new path recording; R stops and saves it.</div>
     <div class="panel-links"><a href="room-reference.html" target="_blank" rel="noopener">Room &amp; door reference ↗</a><a href="shade-reference.html" target="_blank" rel="noopener">Shade &amp; finish reference ↗</a></div>
   </aside>
-
-  <button id="render-view-btn" class="render-view-launch render-only" type="button">Render this view (Eevee) · V</button>
-  <div id="render-view-overlay" class="render-only" hidden role="dialog" aria-modal="true" aria-label="Rendered view">
-    <div id="render-view-card">
-      <div id="render-view-header"><strong>Rendered view</strong><button id="render-view-close" type="button">Resume walking</button></div>
-      <img id="render-view-image" hidden alt="Eevee render of the current walkthrough view">
-      <p id="render-view-status" role="status">Starting the local Eevee render…</p>
-      <a id="render-view-download" hidden download>Download PNG</a>
-      <p class="render-view-help">Move with the keyboard or controller to return to the walkthrough.</p>
-    </div>
-  </div>
 
   <script type="module" src="app.js"></script>
 </body>

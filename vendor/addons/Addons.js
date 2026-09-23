@@ -6,7 +6,6 @@ export { default as WebGL } from './capabilities/WebGL.js';
 export * from './controls/ArcballControls.js';
 export * from './controls/DragControls.js';
 export * from './controls/FirstPersonControls.js';
-export * from './controls/FlyControls.js';
 export * from './controls/MapControls.js';
 export * from './controls/OrbitControls.js';
 export * from './controls/PointerLockControls.js';
@@ -31,7 +30,6 @@ export * from './effects/ParallaxBarrierEffect.js';
 export * from './effects/StereoEffect.js';
 
 export * from './environments/DebugEnvironment.js';
-export * from './environments/RoomEnvironment.js';
 
 export * from './exporters/DRACOExporter.js';
 export * from './exporters/EXRExporter.js';
