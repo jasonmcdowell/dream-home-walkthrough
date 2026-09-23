@@ -133,6 +133,7 @@ let pendingChunkKeys = [];
 let backdrop;
 let backdropZBucket = Number.NaN;
 let backdropAnchorS = Number.NaN;
+let backdropNeedsRefresh = false;
 let exteriorHull;
 let exteriorStars;
 let tramRoot;
@@ -174,6 +175,13 @@ let lastGamepadForwardTap = -Infinity;
 let gamepadForwardHeld = false;
 let previousGamepadButtons = [];
 let activeGamepadIdentity = '';
+const compassNeedle = document.querySelector('#compass-needle');
+const headingCompass = document.querySelector('#heading-compass');
+const headingReading = document.querySelector('#heading-reading');
+const headingDetail = document.querySelector('#heading-detail');
+const regionLabel = document.querySelector('#region');
+const movementSpeedMode = document.querySelector('#movement-speed-mode');
+const movementSpeedValue = document.querySelector('#movement-speed-value');
 
 const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
 const surfaceOrigin = new THREE.Vector3();
@@ -191,7 +199,12 @@ const AIRLOCK_TUNNEL_HALF_LENGTH = 46;
 const AIRLOCK_STATION_OFFSET = 20;
 const EXTERIOR_MAX_DISTANCE = 1000;
 const TRAM_SPEED_MPS = 220;
+const GAMEPAD_ACCELERATION_FRACTION = 0.14;
+const GAMEPAD_BRAKE_MULTIPLIER = 1.5;
 let runningSpeedMps = 7.2;
+let movementSpeedMps = WALK_SPEED_MPS;
+let controllerRampSpeedMps = WALK_SPEED_MPS;
+let controllerSpeedRampActive = false;
 let controlsPanelOpen = false;
 
 function getSeed(config) {
@@ -206,7 +219,11 @@ function makeBackdrop(centerZ) {
     scene.remove(backdrop);
     backdrop.geometry.dispose();
   }
-  const geometry = world.buildOppositeSideGeometry(backdropAnchorS, centerZ);
+  const geometry = world.buildOppositeSideGeometry(
+    backdropAnchorS,
+    centerZ,
+    world.config.streaming.visualDistanceMeters,
+  );
   backdrop = new THREE.Mesh(geometry, backdropMaterial);
   backdrop.name = 'low-detail opposite inner surface';
   backdrop.frustumCulled = false;
@@ -720,7 +737,8 @@ function processChunkQueue() {
   }
 }
 
-function updateBackdrop() {
+function updateBackdrop(forceRebuild = false) {
+  if (forceRebuild) backdropNeedsRefresh = true;
   if (playerOutside) {
     if (backdrop) backdrop.visible = false;
     return;
@@ -731,10 +749,11 @@ function updateBackdrop() {
   const viewS = visibleSurfaceS();
   const needsNewArc = Number.isNaN(backdropAnchorS)
     || Math.abs(world.shortestDeltaS(viewS, backdropAnchorS)) > bucketSize / 2;
-  if (nextZBucket === backdropZBucket && !needsNewArc) return;
+  if (nextZBucket === backdropZBucket && !needsNewArc && !backdropNeedsRefresh) return;
   if (needsNewArc) backdropAnchorS = viewS;
   backdropZBucket = nextZBucket;
   makeBackdrop(nextZBucket * bucketSize);
+  backdropNeedsRefresh = false;
 }
 
 function syncCamera() {
@@ -788,7 +807,7 @@ function syncControllerStatus(gamepad) {
   if (status) {
     status.hidden = !gamepad;
     status.textContent = gamepad
-      ? `${(gamepad.id || 'Controller').replace(/\s+/g, ' ').trim()} · left stick move · right stick look · Y tram · R1 / Options controls · L3 hold-run · L1 toggle-run`
+      ? `${(gamepad.id || 'Controller').replace(/\s+/g, ' ').trim()} · left stick move · right stick look · LT throttle · RT brake · Y tram · R1 / Options controls · L3 hold-run · L1 toggle-run`
       : '';
   }
   const touchControls = document.querySelector('#touch-controls');
@@ -809,10 +828,11 @@ function pollGamepad() {
     previousGamepadButtons = [];
     gamepadForwardHeld = false;
     return {
+      connected: false,
       forward: 0, strafe: 0, lookX: 0, lookY: 0,
       jumpHeld: false, jumpPressed: false, descendHeld: false,
       runHeld: false, runTogglePressed: false, hudPressed: false, forwardPressed: false,
-      interactPressed: false,
+      interactPressed: false, accelerate: 0, decelerate: 0,
     };
   }
 
@@ -824,6 +844,13 @@ function pollGamepad() {
   const pressed = index => {
     const button = gamepad.buttons?.[index];
     return Boolean(button?.pressed || Number(button?.value || 0) > 0.5);
+  };
+  const triggerValue = index => {
+    const button = gamepad.buttons?.[index];
+    return THREE.MathUtils.clamp(Math.max(
+      Number(button?.value || 0),
+      button?.pressed ? 1 : 0,
+    ), 0, 1);
   };
   const previous = previousGamepadButtons;
   const jumpHeld = pressed(0); // Standard A / Cross.
@@ -838,6 +865,7 @@ function pollGamepad() {
   const forwardPressed = forward > 0.75 && !gamepadForwardHeld;
   gamepadForwardHeld = forward > 0.25;
   return {
+    connected: true,
     forward,
     strafe: leftX,
     lookX: rightX,
@@ -849,6 +877,8 @@ function pollGamepad() {
     runTogglePressed: pressed(4) && !previous[4], // Left shoulder.
     hudPressed: (pressed(5) && !previous[5]) || (pressed(9) && !previous[9]), // Right shoulder or Options.
     interactPressed: pressed(3) && !previous[3], // Standard Y / Triangle.
+    accelerate: triggerValue(6), // Standard left trigger (LT / L2) is the throttle.
+    decelerate: triggerValue(7), // Standard right trigger (RT / R2) is the brake.
     forwardPressed,
   };
 }
@@ -909,6 +939,11 @@ function updateRunButton() {
   if (!button) return;
   button.textContent = runToggled ? 'RUN' : 'WALK';
   button.classList.toggle('active', runToggled);
+}
+
+function toggleRunMode() {
+  runToggled = !runToggled;
+  controllerSpeedRampActive = false;
 }
 
 function updateMovementHint() {
@@ -1077,8 +1112,51 @@ let viewRangeRefreshTimer = 0;
 
 function updateRunSpeed() {
   runningSpeedMps = Number(runSpeedSlider.value);
-  runSpeedValue.value = `${runningSpeedMps.toFixed(1)} m/s`;
+  const formattedSpeed = runningSpeedMps >= 100
+    ? Math.round(runningSpeedMps).toLocaleString()
+    : runningSpeedMps.toFixed(1);
+  runSpeedValue.value = `${formattedSpeed} m/s`;
   runSpeedValue.textContent = runSpeedValue.value;
+  controllerRampSpeedMps = Math.min(controllerRampSpeedMps, runningSpeedMps);
+}
+
+function resolveMovementSpeed(gamepad, dt) {
+  const running = runToggled || runKeyHeld || gamepad.runHeld;
+  const baseSpeed = running
+    ? runningSpeedMps
+    : playerOutside || player.flying
+      ? gamepad.connected
+        ? Math.min(controllerRampSpeedMps, runningSpeedMps)
+        : runningSpeedMps
+      : WALK_SPEED_MPS;
+  const accelerating = gamepad.accelerate > 0.015;
+  const braking = gamepad.decelerate > 0.015;
+
+  if (!gamepad.connected) {
+    controllerSpeedRampActive = false;
+    movementSpeedMps = baseSpeed;
+    return movementSpeedMps;
+  }
+
+  if (gamepad.runTogglePressed || (gamepad.runHeld && !accelerating && !braking)) {
+    controllerSpeedRampActive = false;
+  }
+
+  if (accelerating || braking) {
+    if (!controllerSpeedRampActive) {
+      controllerRampSpeedMps = movementSpeedMps;
+      controllerSpeedRampActive = true;
+    }
+    const acceleration = Math.max(4, runningSpeedMps * GAMEPAD_ACCELERATION_FRACTION);
+    controllerRampSpeedMps += (
+      gamepad.accelerate * acceleration
+      - gamepad.decelerate * acceleration * GAMEPAD_BRAKE_MULTIPLIER
+    ) * dt;
+    controllerRampSpeedMps = THREE.MathUtils.clamp(controllerRampSpeedMps, 0, runningSpeedMps);
+  }
+
+  movementSpeedMps = controllerSpeedRampActive ? controllerRampSpeedMps : baseSpeed;
+  return movementSpeedMps;
 }
 
 function updateViewRange() {
@@ -1104,12 +1182,18 @@ function scheduleViewRangeRefresh(immediate = false) {
   clearTimeout(viewRangeRefreshTimer);
   viewRangeRefreshTimer = 0;
   if (immediate) {
-    if (world) reconcileChunks();
+    if (world) {
+      if (backdrop) updateBackdrop(true);
+      reconcileChunks();
+    }
     return;
   }
   viewRangeRefreshTimer = window.setTimeout(() => {
     viewRangeRefreshTimer = 0;
-    if (world) reconcileChunks();
+    if (world) {
+      if (backdrop) updateBackdrop(true);
+      reconcileChunks();
+    }
   }, 180);
 }
 
@@ -1147,7 +1231,7 @@ viewRangeSlider.addEventListener('change', () => {
 });
 updateViewRange();
 
-function advanceVerticalMotion(gamepad, dt) {
+function advanceVerticalMotion(gamepad, dt, movementSpeed) {
   if (jumpQueued) {
     if (!player.flying && player.elevation <= 0.02) player.verticalVelocity = 5.2;
     jumpQueued = false;
@@ -1159,7 +1243,7 @@ function advanceVerticalMotion(gamepad, dt) {
       || gamepad.descendHeld || touchIntent.descendHeld;
     const direction = Number(ascend) - Number(descend);
     if (direction) player.lastFlightDirection = Math.sign(direction);
-    player.verticalVelocity = direction * runningSpeedMps;
+    player.verticalVelocity = direction * movementSpeed;
     player.elevation = THREE.MathUtils.clamp(
       player.elevation + player.verticalVelocity * dt,
       0,
@@ -1218,15 +1302,16 @@ function step(dt) {
   if (!playerOutside && !tramRiding && gamepad.jumpPressed) handleJumpTap('gamepad', now);
   if (!playerOutside && !tramRiding && touchIntent.jumpPressed) handleJumpTap('touch', now);
   touchIntent.jumpPressed = false;
-  if (gamepad.runTogglePressed) runToggled = !runToggled;
+  if (gamepad.runTogglePressed) toggleRunMode();
   if (gamepad.forwardPressed) {
     if (now - lastGamepadForwardTap <= DOUBLE_TAP_MS) {
-      runToggled = !runToggled;
+      toggleRunMode();
       lastGamepadForwardTap = -Infinity;
     } else {
       lastGamepadForwardTap = now;
     }
   }
+  const movementSpeed = resolveMovementSpeed(gamepad, dt);
   player.yaw -= gamepad.lookX * GAMEPAD_LOOK_SPEED * dt;
   player.pitch = THREE.MathUtils.clamp(
     player.pitch - gamepad.lookY * GAMEPAD_LOOK_SPEED * dt,
@@ -1244,10 +1329,10 @@ function step(dt) {
   }
 
   if (playerOutside) {
-    advanceExteriorMovement(gamepad, dt);
+    advanceExteriorMovement(gamepad, dt, movementSpeed);
   } else {
-    advanceVerticalMotion(gamepad, dt);
-    advanceInteriorMovement(gamepad, dt);
+    advanceVerticalMotion(gamepad, dt, movementSpeed);
+    advanceInteriorMovement(gamepad, dt, movementSpeed);
     updateAxisSide();
   }
   updateRunButton();
@@ -1260,11 +1345,10 @@ function step(dt) {
   updateTramPrompt();
 }
 
-function advanceInteriorMovement(gamepad, dt) {
+function advanceInteriorMovement(gamepad, dt, movementSpeed) {
   const intent = readIntent(gamepad);
   if (!intent.forward && !intent.strafe) return;
-  const running = runToggled || runKeyHeld || gamepad.runHeld;
-  const speed = player.flying || running ? runningSpeedMps : WALK_SPEED_MPS;
+  const speed = movementSpeed;
   const surfaceSide = player.axisSide ? -1 : 1;
   const ds = (intent.forward * Math.sin(player.yaw) - intent.strafe * Math.cos(player.yaw))
     * surfaceSide * speed * dt;
@@ -1348,7 +1432,7 @@ function enterInterior(position) {
   updateMovementHint();
 }
 
-function advanceExteriorMovement(gamepad, dt) {
+function advanceExteriorMovement(gamepad, dt, movementSpeed) {
   const intent = readIntent(gamepad);
   const ascend = keys.has('Space') || gamepad.jumpHeld || touchIntent.jumpHeld;
   const descend = keys.has('ControlLeft') || keys.has('ControlRight')
@@ -1356,14 +1440,14 @@ function advanceExteriorMovement(gamepad, dt) {
   const vertical = Number(ascend) - Number(descend);
   if (!intent.forward && !intent.strafe && !vertical) return;
 
-  let moveX = (intent.forward * Math.sin(player.yaw) + intent.strafe * Math.cos(player.yaw)) * runningSpeedMps;
-  let moveY = vertical * runningSpeedMps;
-  let moveZ = (intent.forward * Math.cos(player.yaw) - intent.strafe * Math.sin(player.yaw)) * runningSpeedMps;
+  let moveX = (intent.forward * Math.sin(player.yaw) + intent.strafe * Math.cos(player.yaw)) * movementSpeed;
+  let moveY = vertical * movementSpeed;
+  let moveZ = (intent.forward * Math.cos(player.yaw) - intent.strafe * Math.sin(player.yaw)) * movementSpeed;
   const magnitude = Math.hypot(moveX, moveY, moveZ);
-  if (magnitude > runningSpeedMps) {
-    moveX *= runningSpeedMps / magnitude;
-    moveY *= runningSpeedMps / magnitude;
-    moveZ *= runningSpeedMps / magnitude;
+  if (magnitude > movementSpeed) {
+    moveX *= movementSpeed / magnitude;
+    moveY *= movementSpeed / magnitude;
+    moveZ *= movementSpeed / magnitude;
   }
   const distance = Math.hypot(moveX, moveY, moveZ) * dt;
   const movementSteps = Math.max(1, Math.ceil(distance / 1));
@@ -1419,12 +1503,73 @@ function isBlocked(s, z) {
 function updateHud(now) {
   if (now - lastStatsTime < 180) return;
   lastStatsTime = now;
+  updateCompass();
+  const shownSpeed = tramRiding ? TRAM_SPEED_MPS : movementSpeedMps;
+  const speedPrecision = shownSpeed < 100 ? 1 : 0;
+  movementSpeedMode.textContent = tramRiding
+    ? 'TRAM'
+    : playerOutside
+      ? 'ZERO-G'
+      : player.flying
+        ? 'FLIGHT'
+        : shownSpeed > WALK_SPEED_MPS + 0.05
+          ? 'RUN / BOOST'
+          : 'WALKING';
+  movementSpeedValue.textContent = `${shownSpeed.toLocaleString(undefined, {
+    minimumFractionDigits: speedPrecision,
+    maximumFractionDigits: speedPrecision,
+  })} m/s`;
   document.querySelector('#chunks').textContent = `${chunks.size} chunks loaded · ${world.config.streaming.visualDistanceMeters.toLocaleString()} m view range`;
+  if (playerOutside) {
+    regionLabel.textContent = 'Region · Exterior';
+  } else if (tramRiding) {
+    regionLabel.textContent = 'Region · Axis tram';
+  } else {
+    const biome = world.biomeAt(visibleSurfaceS(), player.z);
+    const biomeNames = {
+      forest: 'Temperate forest',
+      grassland: 'Grassland',
+      dryland: 'Dry scrub',
+      wetland: 'Wetland',
+      highlands: 'Highlands',
+    };
+    regionLabel.textContent = `Biome · ${biomeNames[biome] || biome}`;
+  }
   document.querySelector('#location').textContent = playerOutside
     ? `Exterior · ${Math.round(distanceFromHull(outsidePosition))} m from hull · X ${Math.round(outsidePosition.x)}, Y ${Math.round(outsidePosition.y)}, Z ${Math.round(outsidePosition.z)} m`
     : tramRiding
       ? `Tram · Axis ${Math.round(player.z)} m · ${TRAM_SPEED_MPS} m/s`
       : `Arc ${Math.round(visibleSurfaceS())} m · Axis ${Math.round(player.z)} m · Height ${Math.round(player.elevation)} m`;
+}
+
+function updateCompass() {
+  headingCompass.hidden = playerOutside;
+  if (playerOutside) return;
+
+  const axialComponent = Math.cos(player.yaw);
+  const spinwardComponent = Math.sin(player.yaw) * (player.axisSide ? -1 : 1);
+  const bearing = mod(Math.atan2(spinwardComponent, axialComponent) * 180 / Math.PI, 360);
+  const roundedBearing = Math.round(bearing) % 360;
+  const sector = compassSector(bearing);
+  const axialSign = axialComponent >= 0 ? '+Z' : '−Z';
+  const tangentialDirection = spinwardComponent >= 0 ? 'spinward' : 'anti-spinward';
+  compassNeedle.style.setProperty('--heading', `${bearing}deg`);
+  headingReading.textContent = `${sector} · ${String(roundedBearing).padStart(3, '0')}°`;
+  headingDetail.textContent = `Axial ${axialSign} ${Math.round(Math.abs(axialComponent) * 100)}% · ${tangentialDirection} ${Math.round(Math.abs(spinwardComponent) * 100)}%`;
+}
+
+function compassSector(bearing) {
+  const sectors = [
+    '+Z endcap',
+    '+Z / spinward',
+    'Spinward',
+    '−Z / spinward',
+    '−Z endcap',
+    '−Z / anti-spinward',
+    'Anti-spinward',
+    '+Z / anti-spinward',
+  ];
+  return sectors[Math.round(bearing / 45) % sectors.length];
 }
 
 function frame(now) {
@@ -1479,7 +1624,7 @@ document.addEventListener('keydown', event => {
     if (!event.repeat) {
       const now = performance.now();
       if (now - lastForwardTap <= DOUBLE_TAP_MS) {
-        runToggled = !runToggled;
+        toggleRunMode();
         lastForwardTap = -Infinity;
       } else {
         lastForwardTap = now;
@@ -1642,7 +1787,7 @@ descendButton.addEventListener('pointerdown', event => {
 });
 
 document.querySelector('#run-button').addEventListener('click', () => {
-  runToggled = !runToggled;
+  toggleRunMode();
   updateRunButton();
 });
 

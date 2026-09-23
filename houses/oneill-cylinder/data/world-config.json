@@ -19,9 +19,23 @@
     "baseHeightMeters": 36,
     "riverWidthMeters": 28,
     "riverBankMeters": 44,
+    "riverBedDepthMeters": 14,
+    "riverNetwork": {
+      "longitudinalCount": 2,
+      "circumferentialCount": 2,
+      "longitudinalWidthMeters": 30,
+      "circumferentialWidthMeters": 22,
+      "longitudinalBankMeters": 46,
+      "circumferentialBankMeters": 36,
+      "longitudinalMeanderFraction": 0.055,
+      "circumferentialMeanderMeters": 105
+    },
+    "biomeScaleMeters": 3072,
+    "biomeWarpMeters": 660,
     "zoneCellSizeMeters": 768,
     "treeDensityPerChunk": 26,
     "lakeChanceInWildZones": 0.055,
+    "lakeChanceInWetlands": 0.14,
     "lakeChanceInFarmZones": 0.025,
     "lakeBasinDepthMeters": 14,
     "lakeWaterLevelOffsetMeters": 8

@@ -19,8 +19,26 @@
       <span id="diameter">2,000 m diameter</span>
       <span id="chunks">Preparing landscape…</span>
       <span id="location">Surface 0 · 0</span>
+      <span id="region">Region · Grassland</span>
+    </div>
+    <div id="movement-speed-hud" aria-label="Current movement speed">
+      <span id="movement-speed-mode">WALKING</span>
+      <output id="movement-speed-value">4.6 m/s</output>
     </div>
   </header>
+  <aside id="heading-compass" aria-label="Cylinder heading">
+    <p class="compass-title">CYLINDER HEADING</p>
+    <div id="compass-rose" aria-hidden="true">
+      <span class="compass-label compass-axis-plus">+Z</span>
+      <span class="compass-label compass-spinward">SPIN</span>
+      <span class="compass-label compass-axis-minus">−Z</span>
+      <span class="compass-label compass-antispinward">ANTI</span>
+      <span id="compass-needle"></span>
+      <span class="compass-hub"></span>
+    </div>
+    <output id="heading-reading">+Z endcap · 000°</output>
+    <span id="heading-detail">+s is spinward</span>
+  </aside>
   <button id="controls-toggle" type="button" aria-controls="controls-panel" aria-expanded="false">CONTROLS</button>
   <div id="hint">WASD / arrows or left stick move · Mouse / drag or right stick look · Shift / L3 run · Space / A jump; double-tap to fly · H / R1 / Options controls</div>
   <div id="controller-status" hidden aria-live="polite"></div>
@@ -48,11 +66,11 @@
       <button id="controls-close" type="button" aria-label="Close controls">×</button>
     </div>
     <label class="run-speed-label" for="run-speed">
-      <span>Running / flying speed</span>
+      <span>Running / flying speed limit</span>
       <output id="run-speed-value" for="run-speed">7.2 m/s</output>
     </label>
-    <input id="run-speed" type="range" min="5" max="100" step="0.1" value="7.2">
-    <div class="speed-range-labels"><span>5.0 m/s</span><span>100.0 m/s</span></div>
+    <input id="run-speed" type="range" min="5" max="2000" step="0.1" value="7.2">
+    <div class="speed-range-labels"><span>5.0 m/s</span><span>2,000 m/s</span></div>
     <label class="run-speed-label view-range-label" for="view-range">
       <span>View range</span>
       <output id="view-range-value" for="view-range">500 m</output>
@@ -66,9 +84,10 @@
       <div><dt>Space / A / Cross</dt><dd>Jump · double-tap to fly</dd></div>
       <div><dt>Ctrl / B / Circle</dt><dd>Fly back toward the near wall / lower outside</dd></div>
       <div><dt>Left / right sticks</dt><dd>Move / look</dd></div>
+      <div><dt>LT / L2 · RT / R2</dt><dd>Throttle · brake; speed holds when released</dd></div>
       <div><dt>E / Y / Triangle</dt><dd>Board / leave the center-axis tram</dd></div>
     </dl>
-    <p class="controls-footer">At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside, Space or A / Cross rises and Ctrl or B / Circle lowers. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
+    <p class="controls-footer">The compass uses 0° for the +Z endcap and increases toward spinward; −Z is the opposite endcap. At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside, Space or A / Cross rises and Ctrl or B / Circle lowers. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
   </aside>
   <div id="loading" role="status">
     <div class="loading-card">

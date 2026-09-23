@@ -56,12 +56,156 @@ h1, h2, p { margin-top: 0; }
   letter-spacing: -.025em;
 }
 
+#heading-compass {
+  position: fixed;
+  z-index: 3;
+  top: 112px;
+  right: 18px;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 134px;
+  padding: 10px 11px 9px;
+  border: 1px solid rgb(255 255 255 / 40%);
+  border-radius: 15px;
+  background: rgb(28 43 40 / 76%);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 15%);
+  color: #f6f4e9;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+#heading-compass[hidden] { display: none; }
+
+.compass-title {
+  margin: 0;
+  color: #c3d1c5;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: .12em;
+}
+
+#compass-rose {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  border: 1px solid rgb(235 240 220 / 48%);
+  border-radius: 50%;
+  background:
+    linear-gradient(90deg, transparent calc(50% - .5px), rgb(235 240 220 / 20%) 50%, transparent calc(50% + .5px)),
+    linear-gradient(transparent calc(50% - .5px), rgb(235 240 220 / 20%) 50%, transparent calc(50% + .5px)),
+    rgb(12 24 23 / 34%);
+}
+
+.compass-label {
+  position: absolute;
+  z-index: 1;
+  color: #c3d1c5;
+  font-size: 7px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: .03em;
+}
+
+.compass-axis-plus { top: 4px; left: 50%; transform: translateX(-50%); color: #fff4d4; }
+.compass-spinward { top: 50%; right: 3px; transform: translateY(-50%); color: #d9b279; }
+.compass-axis-minus { bottom: 4px; left: 50%; transform: translateX(-50%); }
+.compass-antispinward { top: 50%; left: 2px; transform: translateY(-50%); }
+
+#compass-needle {
+  position: absolute;
+  inset: 0;
+  transform: rotate(var(--heading, 0deg));
+  transform-origin: center;
+}
+
+#compass-needle::before {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-right: 5px solid transparent;
+  border-bottom: 12px solid #f1bd70;
+  border-left: 5px solid transparent;
+  content: "";
+  transform: translateX(-50%);
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 65%));
+}
+
+#compass-needle::after {
+  position: absolute;
+  top: 26px;
+  left: calc(50% - 1px);
+  width: 2px;
+  height: 20px;
+  border-radius: 2px;
+  background: #f1bd70;
+  content: "";
+}
+
+.compass-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #fff6db;
+  border-radius: 50%;
+  background: #b66b3b;
+  transform: translate(-50%, -50%);
+}
+
+#heading-reading {
+  max-width: 100%;
+  color: #fff4d4;
+  font-size: 9px;
+  font-weight: 750;
+  text-align: center;
+  white-space: nowrap;
+}
+
+#heading-detail {
+  color: #bac8bc;
+  font-size: 8px;
+  line-height: 1.2;
+  text-align: center;
+}
+
 .world-stats {
   display: grid;
   gap: 3px;
   color: #65776f;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+#movement-speed-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 10px;
+  padding: 7px 10px 8px;
+  border: 1px solid rgb(68 103 75 / 24%);
+  border-radius: 9px;
+  background: rgb(222 233 211 / 88%);
+  color: #395a3e;
+  font-variant-numeric: tabular-nums;
+}
+
+#movement-speed-mode {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .11em;
+}
+
+#movement-speed-value {
+  color: #274d31;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 #hint {
@@ -327,6 +471,19 @@ h1, h2, p { margin-top: 0; }
   #world-hud { left: 12px; top: 12px; min-width: 0; padding: 11px 13px; }
   #world-hud h1 { font-size: 21px; }
   .world-stats { font-size: 10px; }
+  #movement-speed-hud { gap: 10px; margin-top: 8px; padding: 6px 8px; }
+  #movement-speed-value { font-size: 17px; }
+  #movement-speed-mode { font-size: 8px; }
+  #heading-compass { top: 91px; right: 12px; width: 116px; gap: 4px; padding: 8px; }
+  #compass-rose { width: 78px; height: 78px; }
+  .compass-axis-plus { top: 3px; }
+  .compass-spinward { right: 2px; }
+  .compass-axis-minus { bottom: 3px; }
+  .compass-antispinward { left: 1px; }
+  #compass-needle::before { top: 13px; }
+  #compass-needle::after { top: 23px; height: 15px; }
+  #heading-reading { font-size: 8px; }
+  #heading-detail { font-size: 7px; }
   #hint { display: none; }
   #tram-prompt {
     bottom: max(96px, calc(env(safe-area-inset-bottom) + 86px));
