@@ -201,7 +201,7 @@ const MOBILE_GARDEN_DOOR_ANGLES = [351, 189].map(angle => THREE.MathUtils.degToR
 const MOBILE_GARDEN_DOOR_HALF_WIDTH = THREE.MathUtils.degToRad(14);
 const MOBILE_GARDEN_DOOR_PROFILE_START = Math.PI - Math.asin((8 * FT) / (15 * FT));
 const roofCutawayPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), ROOF_CUTAWAY_HEIGHT);
-let collisionProfile = mobileLike ? 'mobile shell + floor' : 'full authored collision maps';
+let collisionProfile = mobileLike ? 'mobile shell + floor' : 'low-poly exported collision model';
 
 function refreshActiveCollisionWorlds() {
   const collisionWorlds = [world];
@@ -343,6 +343,7 @@ let lastTime = performance.now();
 let yaw = 0;
 let pitch = 0;
 let model;
+let collisionModel;
 let roofCutawayMaterials = [];
 let viewTools;
 let triangleCount = 0;
@@ -1584,7 +1585,7 @@ if (testing) {
 }
 
 /*
- * Build collision directly from the original indexed/non-indexed mesh data.
+ * Build collision from the exported low-poly collision model.
  *
  * The previous version cloned every collision mesh, converted it to non-indexed
  * geometry, copied all coordinates into a normal JavaScript Array, duplicated
@@ -1592,11 +1593,10 @@ if (testing) {
  * Float32Array before Octree.fromGraphNode() created its own triangle objects.
  * That caused a very large transient memory spike.
  *
- * This version reads source positions directly into the Octree. Floors, lower
- * shell walls, partitions, furniture and room ceilings retain their authored
- * collision triangles; the dense upper outer shell is replaced by a low-polygon
- * torus-profile proxy. No full-resolution cloned meshes or giant coordinate
- * arrays are created.
+ * The collision GLB contains explicit map metadata for floors, shell bands,
+ * partitions, furniture, ceilings, and optional shade systems. The mobile path
+ * still uses its procedural shell/floor proxy to avoid a second model download
+ * and the associated memory pressure on iPad Safari.
  */
 function geometryTriangleCount(geometry) {
   const index = geometry.index;
@@ -1759,6 +1759,14 @@ function addMeshTrianglesToCollisionTree(tree, mesh, triangleFilter = () => true
   return count;
 }
 
+function disposeCollisionModel(root) {
+  root?.traverse(object => {
+    object.geometry?.dispose();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.forEach(material => material?.dispose?.());
+  });
+}
+
 async function buildMobileCollisionWorld() {
   // A real iPad can terminate the WebKit tab while the full authored forest
   // is being assembled, even though desktop and WebKit emulation survive it.
@@ -1823,17 +1831,25 @@ async function buildMobileCollisionWorld() {
   };
 }
 
-async function buildCollisionOctree(root) {
+async function buildCollisionOctree(root, { external = false } = {}) {
   if (mobileLike) return buildMobileCollisionWorld();
   const collisionMeshes = [];
+  const collisionMeshMaps = new Map();
   let outputTriangleCount = 0;
   sourceCollisionTriangles = 0;
   let hasOuterShell = false;
+  let hasExplicitRoof = false;
+  const exportedSourceTriangles = Number(root?.userData?.sourceCollisionTriangles || 0);
+  collisionProfile = external ? 'low-poly exported collision model' : 'full authored collision maps';
 
   root.updateMatrixWorld(true);
 
   root.traverse(o => {
     if (!o.isMesh || !o.userData.collision || !o.geometry) return;
+
+    const explicitMap = o.userData.collisionMap;
+    if (external && !explicitMap) return;
+    if (explicitMap && !collisionForests[explicitMap]) return;
 
     const position = o.geometry.getAttribute('position');
     if (!position) return;
@@ -1841,8 +1857,12 @@ async function buildCollisionOctree(root) {
     const count = geometryTriangleCount(o.geometry);
 
     collisionMeshes.push(o);
-    sourceCollisionTriangles += count;
-    if (o.userData.group === '04') {
+    if (!external) sourceCollisionTriangles += count;
+    if (explicitMap) {
+      collisionMeshMaps.set(o, explicitMap);
+      hasExplicitRoof = hasExplicitRoof || explicitMap === 'roof';
+      outputTriangleCount += count;
+    } else if (o.userData.group === '04') {
       hasOuterShell = true;
       outputTriangleCount += countLowerShellTriangles(o);
     } else {
@@ -1850,14 +1870,14 @@ async function buildCollisionOctree(root) {
     }
   });
 
-  if (hasOuterShell) {
+  if (hasOuterShell && !hasExplicitRoof) {
     const roofProxy = createSimplifiedRoofCollisionProxy();
     collisionMeshes.push(roofProxy);
     outputTriangleCount += geometryTriangleCount(roofProxy.geometry);
   }
 
   totalCollisionTriangles = Math.floor(outputTriangleCount);
-  sourceCollisionTriangles = Math.floor(sourceCollisionTriangles);
+  sourceCollisionTriangles = Math.floor(exportedSourceTriangles || sourceCollisionTriangles || outputTriangleCount);
   triangleCount = 0;
   collisionChunksIndexed = 0;
   for (const key of Object.keys(collisionForests)) {
@@ -1929,13 +1949,14 @@ async function buildCollisionOctree(root) {
 
     for (const mesh of collisionMeshes) {
       const group = mesh.userData.group;
-      if (group === '04' && !mesh.userData.collisionProxy && phase === 'secondary') continue;
-      if (mesh.userData.collisionProxy && phase === 'essential') continue;
+      const explicitMap = collisionMeshMaps.get(mesh);
+      if (!explicitMap && group === '04' && !mesh.userData.collisionProxy && phase === 'secondary') continue;
+      if (!explicitMap && mesh.userData.collisionProxy && phase === 'essential') continue;
       const system = mesh.userData.system_option;
-      const collisionKey = system
+      const collisionKey = explicitMap || system
         || (group === '06' ? 'furniture'
           : INTERIOR_COLLISION_GROUPS.has(group) ? 'interior' : 'base');
-      const splitByHeight = !system && (group === '04' || group === '13');
+      const splitByHeight = !explicitMap && !system && (group === '04' || group === '13');
       const ordinaryCoreMesh = collisionKey === 'base' || collisionKey === 'interior';
       if (phase === 'essential' && !ordinaryCoreMesh && !splitByHeight) continue;
       if (phase === 'secondary' && ordinaryCoreMesh && !splitByHeight) continue;
@@ -1951,7 +1972,7 @@ async function buildCollisionOctree(root) {
 
       const addTriangle = (ia, ib, ic) => {
         visited++;
-        if (group === '04' && !mesh.userData.collisionProxy && Math.max(
+        if (!explicitMap && group === '04' && !mesh.userData.collisionProxy && Math.max(
           worldYAt(position, matrixWorld, ia),
           worldYAt(position, matrixWorld, ib),
           worldYAt(position, matrixWorld, ic),
@@ -1964,18 +1985,31 @@ async function buildCollisionOctree(root) {
         // Keep the upper shell and room roofs in removable maps for the
         // cutaway. Triangles crossing the cut plane stay in the removable map.
         const maxY = Math.max(a.y, b.y, c.y);
-        const targetKey = mesh.userData.collisionProxy ? 'roof'
+        const targetKey = explicitMap || (mesh.userData.collisionProxy ? 'roof'
           : splitByHeight && maxY >= ROOF_CUTAWAY_HEIGHT
             ? group === '04' ? 'roof' : 'interior_roof'
-            : collisionKey;
+            : collisionKey);
         const isEssential = targetKey === 'base' || targetKey === 'interior';
         if ((phase === 'essential') !== isEssential) return;
 
         const targetCountKey = collisionForests[targetKey] ? targetKey : 'base';
+        const normalX = (b.y - a.y) * (c.z - a.z) - (b.z - a.z) * (c.y - a.y);
         const normalY = (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z);
-        pendingCollisionTrees[targetCountKey].addTriangle(groundSheet && normalY < 0
-          ? new THREE.Triangle(a, c, b)
-          : new THREE.Triangle(a, b, c));
+        const normalZ = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        const exportedGroundSheet = external && explicitMap === 'base'
+          && normalY < 0
+          && Math.abs(normalY) >= Math.abs(normalX)
+          && Math.abs(normalY) >= Math.abs(normalZ);
+        const reverseExplicitWinding = mesh.userData.collisionWinding === 'reverse';
+        const triangle = mesh.userData.collisionProxy
+          // Blender's exported GLB already has the inward-facing winding
+          // needed for rays cast from inside the torus. Keep that winding;
+          // reversing it makes the roof invisible to the one-sided ray test.
+          ? new THREE.Triangle(a, b, c)
+          : (reverseExplicitWinding || (groundSheet || exportedGroundSheet) && normalY < 0)
+            ? new THREE.Triangle(a, c, b)
+            : new THREE.Triangle(a, b, c);
+        pendingCollisionTrees[targetCountKey].addTriangle(triangle);
         pendingCollisionCounts[targetCountKey]++;
         collisionCounts[targetCountKey]++;
       };
@@ -2035,7 +2069,8 @@ requestAnimationFrame(animate);
 try {
   setLoadStatus('Loading Blender model…');
 
-  const gltf = await new GLTFLoader().loadAsync(
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync(
     './assets/dream-home.glb',
     event => {
       if (event.total > 0) {
@@ -2087,7 +2122,33 @@ try {
   render();
   await nextFrame();
 
-  const buildDeferredCollisionWorlds = await buildCollisionOctree(model);
+  let collisionRoot = model;
+  if (!mobileLike) {
+    setLoadStatus('Loading low-poly collision model…');
+    const collisionGltf = await loader.loadAsync(
+      './assets/torus-home-collision.glb',
+      event => {
+        if (event.total > 0) {
+          const pct = Math.min(100, Math.round(event.loaded / event.total * 100));
+          status.textContent = `Loading low-poly collision model… ${pct}%`;
+        } else if (event.loaded > 0) {
+          status.textContent = `Loading low-poly collision model… ${(event.loaded / 1024 / 1024).toFixed(1)} MB`;
+        }
+      },
+    );
+    collisionModel = collisionGltf.scene;
+    collisionModel.updateMatrixWorld(true);
+    collisionRoot = collisionModel;
+  }
+
+  const buildDeferredCollisionWorlds = await buildCollisionOctree(
+    collisionRoot,
+    { external: !mobileLike },
+  );
+  if (!mobileLike) {
+    disposeCollisionModel(collisionModel);
+    collisionModel = null;
+  }
 
   viewTools = await createViewTools(scene, sun, hemisphere, render, model, setShadeSystem);
   document.querySelector('#view-controls').hidden = false;
