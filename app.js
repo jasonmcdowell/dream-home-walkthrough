@@ -70,24 +70,26 @@ const projectileSpecs = {
   bullet: {
     speed: 42,
     radius: 0.045,
-    maxAge: 1.3,
-    maxDistance: 54,
-    maxBounces: 4,
+    // Give a shot enough time and travel budget to follow the ring instead
+    // of disappearing after only a few nearby wall contacts.
+    maxAge: 2.4,
+    maxDistance: 96,
+    maxBounces: 12,
     restitution: 0.72,
     tangentDamping: 0.96,
     gravity: 0,
-    minSpeed: 2.5,
+    minSpeed: 1.0,
   },
   fireball: {
     speed: 18,
     radius: 0.08,
-    maxAge: 3.2,
-    maxDistance: 58,
-    maxBounces: 6,
+    maxAge: 5.5,
+    maxDistance: 96,
+    maxBounces: 18,
     restitution: 0.48,
     tangentDamping: 0.90,
     gravity: -3.1,
-    minSpeed: 1.2,
+    minSpeed: 0.35,
   },
 };
 const PROJECTILE_LIMIT = 64;
