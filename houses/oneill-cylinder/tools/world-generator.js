@@ -20,15 +20,6 @@ const BIOME_COLORS = {
   wetland: WETLAND_COLOR,
   highlands: ALPINE_COLOR,
 };
-const NOISE_OCTAVES = [
-  { scale: 1536, amplitude: 42 },
-  { scale: 768, amplitude: 27 },
-  { scale: 384, amplitude: 17 },
-  { scale: 192, amplitude: 9 },
-  { scale: 96, amplitude: 4.5 },
-  { scale: 48, amplitude: 2 },
-];
-
 const ZONE_FALLBACK_SIZE = 768;
 
 const positiveModulo = (value, modulus) => ((value % modulus) + modulus) % modulus;
@@ -54,6 +45,10 @@ const smooth = value => value * value * (3 - 2 * value);
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
+}
+
+function smoothstep(edge0, edge1, value) {
+  return smooth(THREE.MathUtils.clamp((value - edge0) / Math.max(1e-6, edge1 - edge0), 0, 1));
 }
 
 function clipSegmentToRect(x0, y0, x1, y1, minX, minY, maxX, maxY) {
@@ -94,16 +89,25 @@ export class CylinderWorld {
       ? Math.PI * requestedDiameter
       : this.chunkSize * this.circumferenceChunks;
     this.radius = this.circumference / TAU;
+    this.groundDepth = Math.max(1, Number(config.surface.groundDepthMeters) || 1000);
+    this.groundClampMargin = THREE.MathUtils.clamp(
+      Number(config.landscape.groundClampMarginMeters) || 30,
+      1,
+      this.groundDepth - 1,
+    );
+    this.minimumGroundHeight = -this.groundDepth + this.groundClampMargin;
+    this.hullRadius = this.radius + this.groundDepth;
     this.circumferentialChunkSize = this.circumference / this.circumferenceChunks;
     this.axialHalfLength = config.surface.axialLengthMeters / 2;
     this.terrainSegments = config.streaming.terrainSegments;
-    this.baseHeight = config.landscape.baseHeightMeters;
+    this.baseHeight = Number(config.landscape.baseHeightMeters) || 0;
     this.riverPhase = hash01(this.seed, 17, 91, 4) * TAU;
     this.riverPaths = this.#createRiverPaths();
+    this.waterfallFeatures = this.#createWaterfalls();
     this.riverWidth = Math.max(8, ...this.riverPaths.map(path => path.width));
     this.riverBank = Math.max(1, ...this.riverPaths.map(path => path.bank));
     this.riverDepth = Math.max(1, ...this.riverPaths.map(path => path.depth));
-    this.zoneSize = Math.max(192, Number(config.landscape.zoneCellSizeMeters) || ZONE_FALLBACK_SIZE);
+    this.zoneSize = Math.max(384, Number(config.landscape.zoneCellSizeMeters) || ZONE_FALLBACK_SIZE);
     this.zoneColumns = Math.max(1, Math.round(this.circumference / this.zoneSize));
     this.zoneRows = Math.max(1, Math.ceil(config.surface.axialLengthMeters / this.zoneSize));
     this.zoneSizeS = this.circumference / this.zoneColumns;
@@ -111,7 +115,10 @@ export class CylinderWorld {
     this.zoneCache = new Map();
     this.settlementsCache = null;
     this.roadCache = null;
+    this.inlandSea = this.#createInlandSea();
+    this.waterBodiesCache = null;
     this.colorScratch = new THREE.Color();
+    this.landmarks = this.#createLandmarks();
   }
 
   wrapS(s) {
@@ -126,7 +133,7 @@ export class CylinderWorld {
   }
 
   #noise(s, z, scale, channel) {
-    const cellsAround = Math.round(this.circumference / scale);
+    const cellsAround = Math.max(1, Math.round(this.circumference / Math.max(1, scale)));
     const gridS = this.wrapS(s) / this.circumference * cellsAround;
     const gridZ = z / scale;
     const x0 = Math.floor(gridS);
@@ -140,17 +147,71 @@ export class CylinderWorld {
     return lerp(a, b, tz) * 2 - 1;
   }
 
-  baseTerrainHeight(s, z) {
-    const warpedS = s + this.#noise(s, z, 1024, 8) * 110;
-    const warpedZ = z + this.#noise(s, z, 1024, 9) * 145;
-    let height = this.baseHeight;
-    NOISE_OCTAVES.forEach((octave, index) => {
-      height += this.#noise(warpedS, warpedZ, octave.scale, index + 1) * octave.amplitude;
-    });
-    const ridgeNoise = this.#noise(warpedS, warpedZ, 620, 10);
+  #naturalTerrainHeight(s, z) {
+    const landscape = this.config.landscape;
+    const macroScale = Math.max(1800, this.circumference * 0.36);
+    const warp = Math.max(0, Number(landscape.terrainWarpMeters) || 620);
+    const warpedS = s + this.#noise(s, z, macroScale * 0.5, 8) * warp;
+    const warpedZ = z + this.#noise(s, z, macroScale * 0.5, 9) * warp;
+    let height = this.baseHeight
+      + this.#noise(warpedS, warpedZ, macroScale, 10) * (Number(landscape.continentalReliefMeters) || 360)
+      + this.#noise(warpedS, warpedZ, macroScale * 0.4, 11) * (Number(landscape.regionalReliefMeters) || 230)
+      + this.#noise(warpedS, warpedZ, macroScale * 0.13, 12) * (Number(landscape.hillReliefMeters) || 95)
+      + this.#noise(warpedS, warpedZ, macroScale * 0.045, 13) * (Number(landscape.detailReliefMeters) || 42)
+      + this.#noise(warpedS, warpedZ, macroScale * 0.016, 14) * 18;
+
+    const beltScale = Math.max(2600, Number(landscape.mountainBeltScaleMeters) || this.circumference * 0.36);
+    const beltAxisS = warpedS + warpedZ * 0.31;
+    const beltAxisZ = warpedZ - warpedS * 0.14;
+    const beltField = this.#noise(beltAxisS, beltAxisZ, beltScale, 20) * 0.68
+      + this.#noise(beltAxisS, beltAxisZ, beltScale * 0.54, 21) * 0.32;
+    const mountainMask = smoothstep(-0.1, 0.44, beltField);
+    const ridgeNoise = this.#noise(warpedS, warpedZ, beltScale * 0.23, 22);
     const ridge = 1 - Math.abs(ridgeNoise);
-    height += ridge * ridge * 24;
+    height += mountainMask * (
+      (Number(landscape.mountainReliefMeters) || 420) * 0.34
+      + ridge * ridge * (Number(landscape.ridgeReliefMeters) || 360)
+    );
+
+    const plateauScale = Math.max(2200, Number(landscape.plateauScaleMeters) || this.circumference * 0.3);
+    const plateauField = this.#noise(warpedS + warpedZ * 0.22, warpedZ, plateauScale, 23);
+    const plateau = smoothstep(-0.035, 0.035, plateauField);
+    height += (plateau - 0.5) * (Number(landscape.plateauReliefMeters) || 210);
+
+    const basinField = this.#noise(warpedS - warpedZ * 0.19, warpedZ + warpedS * 0.12, macroScale * 1.12, 24);
+    const basinMask = 1 - smoothstep(-0.52, -0.08, basinField);
+    height -= basinMask * (Number(landscape.lowBasinDepthMeters) || 220);
     return height;
+  }
+
+  #waterfallTerrainOffset(s, z) {
+    let offset = 0;
+    const transition = Math.max(2, Number(this.config.landscape.waterfallCliffTransitionMeters) || 8);
+    for (const waterfall of this.waterfallFeatures ?? []) {
+      const path = this.riverPaths[waterfall.pathIndex];
+      if (!path) continue;
+      const center = path.orientation === 'longitudinal'
+        ? this.#longitudinalRiverCenter(path, z)
+        : this.#circumferentialRiverCenter(path, s);
+      const lateral = path.orientation === 'longitudinal'
+        ? Math.abs(this.shortestDeltaS(s, center))
+        : Math.abs(z - center);
+      if (lateral > path.width / 2 + path.bank) continue;
+      const along = path.orientation === 'longitudinal'
+        ? z - waterfall.z
+        : positiveModulo(this.shortestDeltaS(s, waterfall.s), this.circumference);
+      const downstream = path.orientation === 'longitudinal'
+        ? smoothstep(-transition / 2, transition / 2, along)
+        : smoothstep(0, transition, along)
+          * (1 - smoothstep(waterfall.recoveryLength - transition, waterfall.recoveryLength, along));
+      const channel = 1 - smoothstep(path.width / 2, path.width / 2 + path.bank, lateral);
+      offset -= waterfall.drop * downstream * channel;
+    }
+    return offset;
+  }
+
+  baseTerrainHeight(s, z) {
+    return this.#naturalTerrainHeight(s, z) + this.#waterfallTerrainOffset(s, z);
   }
 
   #biomeAt(s, z, height) {
@@ -169,7 +230,7 @@ export class CylinderWorld {
     const moisture = this.#noise(warpedS + scale * 0.17, warpedZ - scale * 0.11, scale * 0.72, 67) * 0.68
       + this.#noise(warpedS - scale * 0.09, warpedZ + scale * 0.2, scale * 0.34, 68) * 0.32;
 
-    if (height > this.baseHeight + 31 + regionalShape * 7) return 'highlands';
+    if (height > this.baseHeight + (Number(landscape.highlandsThresholdMeters) || 450) + regionalShape * 120) return 'highlands';
     if (moisture > 0.43 && regionalShape < 0.55) return 'wetland';
     if (moisture < -0.38) return 'dryland';
     return regionalShape > 0.12 ? 'forest' : 'grassland';
@@ -251,6 +312,116 @@ export class CylinderWorld {
       + drift * path.meanderMeters;
   }
 
+  #createWaterfalls() {
+    const landscape = this.config.landscape;
+    const spacing = Math.max(800, Number(landscape.waterfallSpacingMeters) || 3200);
+    const minimumDrop = Math.max(20, Number(landscape.waterfallMinDropMeters) || 45);
+    const maximumDrop = Math.max(minimumDrop, Number(landscape.waterfallMaxDropMeters) || 180);
+    const features = [];
+    for (const path of this.riverPaths) {
+      const pathLength = path.orientation === 'longitudinal'
+        ? this.config.surface.axialLengthMeters
+        : this.circumference;
+      const count = Math.max(1, Math.floor(pathLength / spacing));
+      let previousDrops = 0;
+      const pathFeatures = [];
+      for (let index = 0; index < count; index++) {
+        const channel = 2300 + path.index * 100 + index * 3;
+        const fraction = (index + 0.32 + hash01(this.seed, path.index, index, channel) * 0.36) / count;
+        const along = fraction * pathLength;
+        let s;
+        let z;
+        let upstreamS;
+        let upstreamZ;
+        if (path.orientation === 'longitudinal') {
+          z = -this.axialHalfLength + along;
+          s = this.#longitudinalRiverCenter(path, z);
+          upstreamZ = z - Math.max(24, path.width * 1.2);
+          upstreamS = this.#longitudinalRiverCenter(path, upstreamZ);
+        } else {
+          s = along;
+          z = this.#circumferentialRiverCenter(path, s);
+          upstreamS = this.wrapS(s - Math.max(24, path.width * 1.2));
+          upstreamZ = this.#circumferentialRiverCenter(path, upstreamS);
+        }
+        const requestedDrop = minimumDrop + hash01(this.seed, path.index, index, channel + 1) * (maximumDrop - minimumDrop);
+        const topHeight = Math.max(
+          this.minimumGroundHeight + 2,
+          this.#naturalTerrainHeight(upstreamS, upstreamZ)
+            - path.depth * 0.76 - (path.orientation === 'longitudinal' ? previousDrops : 0),
+        );
+        const drop = Math.min(requestedDrop, Math.max(1, topHeight - this.minimumGroundHeight - 2));
+        const feature = {
+          pathIndex: path.index,
+          s: this.wrapS(s),
+          z,
+          width: path.width * (0.82 + hash01(this.seed, path.index, index, channel + 2) * 0.28),
+          drop,
+          orientation: path.orientation,
+          topHeight,
+          bottomHeight: topHeight - drop,
+          recoveryLength: 0,
+        };
+        features.push(feature);
+        pathFeatures.push(feature);
+        if (path.orientation === 'longitudinal') previousDrops += drop;
+      }
+      if (path.orientation === 'circumferential') {
+        pathFeatures.forEach((feature, index) => {
+          const next = pathFeatures[(index + 1) % pathFeatures.length];
+          const interval = positiveModulo(next.s - feature.s, this.circumference);
+          feature.recoveryLength = interval * 0.86;
+        });
+      }
+    }
+    return features;
+  }
+
+  #createInlandSea() {
+    const landscape = this.config.landscape;
+    const radiusS = Math.min(
+      this.circumference * 0.22,
+      Math.max(this.circumference * 0.14, Number(landscape.inlandSeaRadiusSMeters) || this.circumference * 0.18),
+    );
+    const radiusZ = Math.min(
+      this.config.surface.axialLengthMeters * 0.25,
+      Math.max(this.config.surface.axialLengthMeters * 0.14, Number(landscape.inlandSeaRadiusZMeters) || this.config.surface.axialLengthMeters * 0.19),
+    );
+    return {
+      type: 'sea',
+      s: hash01(this.seed, 3100, 17, 0) * this.circumference,
+      z: (hash01(this.seed, 3100, 19, 0) - 0.5) * this.config.surface.axialLengthMeters * 0.18,
+      radiusS,
+      radiusZ,
+      yaw: hash01(this.seed, 3100, 23, 0) * TAU,
+      waterLevel: Number(landscape.inlandSeaWaterLevelMeters) || -65,
+      basinDepth: Math.max(30, Number(landscape.inlandSeaBasinDepthMeters) || 280),
+    };
+  }
+
+  #ellipseRadius(s, z, body) {
+    const ds = this.shortestDeltaS(s, body.s);
+    const dz = z - body.z;
+    const cosYaw = Math.cos(body.yaw || 0);
+    const sinYaw = Math.sin(body.yaw || 0);
+    const rotatedS = ds * cosYaw + dz * sinYaw;
+    const rotatedZ = -ds * sinYaw + dz * cosYaw;
+    return Math.sqrt((rotatedS / body.radiusS) ** 2 + (rotatedZ / body.radiusZ) ** 2);
+  }
+
+  #inlandSeaTerrainHeight(height, s, z) {
+    const sea = this.inlandSea;
+    if (!sea) return height;
+    const radius = this.#ellipseRadius(s, z, sea);
+    if (radius >= 1.15) return height;
+    const floorBlend = 1 - smoothstep(0.56, 1, radius);
+    const seaFloor = sea.waterLevel - sea.basinDepth;
+    let result = lerp(height, seaFloor, floorBlend);
+    const shoreBlend = 1 - smoothstep(0.9, 1.15, radius);
+    result = Math.min(result, sea.waterLevel - 12 * shoreBlend);
+    return result;
+  }
+
   #riverDistanceToPath(path, s, z) {
     const sampleStep = 12;
     if (path.orientation === 'longitudinal') {
@@ -292,10 +463,31 @@ export class CylinderWorld {
     return this.#riverMetrics(s, z).distance;
   }
 
+  #riverWaterLevel(path, s, z) {
+    const surfaceCandidate = this.baseTerrainHeight(s, z) - path.depth * 0.76;
+    const ground = this.terrainHeight(s, z);
+    const seaRadius = this.inlandSea ? this.#ellipseRadius(s, z, this.inlandSea) : Infinity;
+    const seaAdjusted = seaRadius <= 1.03 ? Math.min(surfaceCandidate, this.inlandSea.waterLevel) : surfaceCandidate;
+    return Math.max(seaAdjusted, ground + 2, this.minimumGroundHeight + 2);
+  }
+
+  riverWaterHeight(s, z) {
+    let nearestPath = null;
+    let nearestDistance = Infinity;
+    for (const path of this.riverPaths) {
+      const distance = this.#riverDistanceToPath(path, s, z);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestPath = path;
+      }
+    }
+    return nearestPath ? this.#riverWaterLevel(nearestPath, s, z) : this.terrainHeight(s, z);
+  }
+
   riverSurfaceHeight(z) {
     const path = this.riverPaths.find(candidate => candidate.orientation === 'longitudinal');
     const s = path ? this.#longitudinalRiverCenter(path, z) : this.circumference / 2;
-    return this.baseTerrainHeight(s, z) - (path?.depth ?? 14) * 0.76;
+    return path ? this.#riverWaterLevel(path, s, z) : this.terrainHeight(s, z);
   }
 
   terrainHeight(s, z, riverMetrics = null) {
@@ -303,17 +495,12 @@ export class CylinderWorld {
     let height = this.baseTerrainHeight(s, z) - rivers.carveDepth;
     const zone = this.#zoneAt(s, z);
     if (zone.lake) {
-      const ds = this.shortestDeltaS(s, zone.lake.s);
-      const dz = z - zone.lake.z;
-      const cosYaw = Math.cos(zone.lake.yaw);
-      const sinYaw = Math.sin(zone.lake.yaw);
-      const rotatedS = ds * cosYaw + dz * sinYaw;
-      const rotatedZ = -ds * sinYaw + dz * cosYaw;
-      const radius = Math.sqrt((rotatedS / zone.lake.radiusS) ** 2 + (rotatedZ / zone.lake.radiusZ) ** 2);
+      const radius = this.#ellipseRadius(s, z, zone.lake);
       const basin = 1 - smooth(THREE.MathUtils.clamp(radius, 0, 1));
       height -= basin * zone.lake.basinDepth;
     }
-    return height;
+    height = this.#inlandSeaTerrainHeight(height, s, z);
+    return Math.max(this.minimumGroundHeight, height);
   }
 
   #zoneByIndex(column, row) {
@@ -391,6 +578,135 @@ export class CylinderWorld {
     return this.#zoneByIndex(column, row);
   }
 
+  #createLandmarks() {
+    const createLandmark = (kind, index, height, footprintMin, footprintMax) => {
+      let position = null;
+      for (let attempt = 0; attempt < 48; attempt++) {
+        const s = hash01(this.seed, 3200 + index, attempt, 1) * this.circumference;
+        const z = (hash01(this.seed, 3300 + index, attempt, 2) - 0.5) * this.config.surface.axialLengthMeters * 0.68;
+        if (this.#ellipseRadius(s, z, this.inlandSea) < 1.2) continue;
+        const groundHeight = this.terrainHeight(s, z);
+        if (groundHeight + height > this.radius * 0.82) continue;
+        position = { s, z, groundHeight };
+        break;
+      }
+      if (!position) {
+        const s = this.wrapS(this.inlandSea.s + this.circumference / 2);
+        const z = 0;
+        position = { s, z, groundHeight: this.terrainHeight(s, z) };
+      }
+      const footprint = footprintMin + hash01(this.seed, 3400 + index, 0, 3) * (footprintMax - footprintMin);
+      return {
+        kind,
+        s: position.s,
+        z: position.z,
+        width: footprint,
+        depth: kind === 'megaPyramid'
+          ? footprint
+          : footprint * (0.85 + hash01(this.seed, 3400 + index, 1, 3) * 0.3),
+        height,
+        groundHeight: position.groundHeight,
+        yaw: hash01(this.seed, 3500 + index, 0, 4) * TAU,
+      };
+    };
+    const landmarks = [
+      createLandmark('megaPyramid', 0, 1500, 1000, 1600),
+    ];
+    for (let i = 0; i < 3; i++) {
+      const height = 250 + hash01(this.seed, 3600 + i, 0, 5) * 250;
+      landmarks.push(createLandmark('wizardTower', i + 1, height, 35, 70));
+    }
+    return landmarks;
+  }
+
+  #allWaterBodies() {
+    if (this.waterBodiesCache) return this.waterBodiesCache;
+    const bodies = [{
+      type: 'sea',
+      s: this.inlandSea.s,
+      z: this.inlandSea.z,
+      radiusS: this.inlandSea.radiusS,
+      radiusZ: this.inlandSea.radiusZ,
+      yaw: this.inlandSea.yaw,
+      waterLevel: this.inlandSea.waterLevel,
+    }];
+    for (let row = 0; row < this.zoneRows; row++) {
+      for (let column = 0; column < this.zoneColumns; column++) {
+        const zone = this.#zoneByIndex(column, row);
+        if (!zone.lake) continue;
+        const waterLevel = Math.max(
+          this.terrainHeight(zone.lake.s, zone.lake.z) + zone.lake.waterLevelOffset,
+          this.minimumGroundHeight + 2,
+        );
+        bodies.push({
+          type: 'lake',
+          s: zone.lake.s,
+          z: zone.lake.z,
+          radiusS: zone.lake.radiusS,
+          radiusZ: zone.lake.radiusZ,
+          yaw: zone.lake.yaw,
+          waterLevel,
+        });
+      }
+    }
+    this.waterBodiesCache = bodies;
+    return bodies;
+  }
+
+  #bodyIntersectsChunk(body, s0, z0, sizeS, sizeZ) {
+    const cosYaw = Math.cos(body.yaw || 0);
+    const sinYaw = Math.sin(body.yaw || 0);
+    const extentS = Math.sqrt((body.radiusS * cosYaw) ** 2 + (body.radiusZ * sinYaw) ** 2);
+    const extentZ = Math.sqrt((body.radiusS * sinYaw) ** 2 + (body.radiusZ * cosYaw) ** 2);
+    for (const shift of [-this.circumference, 0, this.circumference]) {
+      const centerS = body.s + shift;
+      const gapS = Math.max(s0 - centerS, 0, centerS - (s0 + sizeS));
+      const gapZ = Math.max(z0 - body.z, 0, body.z - (z0 + sizeZ));
+      if (gapS <= extentS && gapZ <= extentZ) return true;
+    }
+    return false;
+  }
+
+  waterBodiesForChunk(column, row) {
+    const sizeS = this.circumferentialChunkSize;
+    const sizeZ = this.chunkSize;
+    const s0 = column * sizeS;
+    const z0 = this.chunkStartZ(row);
+    return this.#allWaterBodies()
+      .filter(body => this.#bodyIntersectsChunk(body, s0, z0, sizeS, sizeZ))
+      .map(body => ({ ...body }));
+  }
+
+  waterfallsForChunk(column, row) {
+    const sizeS = this.circumferentialChunkSize;
+    const sizeZ = this.chunkSize;
+    const s0 = column * sizeS;
+    const z0 = this.chunkStartZ(row);
+    const waterfalls = [];
+    for (const feature of this.waterfallFeatures) {
+      const extentS = feature.orientation === 'longitudinal' ? feature.width / 2 + 4 : 6;
+      const extentZ = feature.orientation === 'longitudinal' ? 6 : feature.width / 2 + 4;
+      for (const shift of [-this.circumference, 0, this.circumference]) {
+        const featureS = feature.s + shift;
+        const gapS = Math.max(s0 - featureS, 0, featureS - (s0 + sizeS));
+        const gapZ = Math.max(z0 - feature.z, 0, feature.z - (z0 + sizeZ));
+        if (gapS <= extentS && gapZ <= extentZ) {
+          waterfalls.push({
+            s: feature.s,
+            z: feature.z,
+            width: feature.width,
+            drop: feature.drop,
+            orientation: feature.orientation,
+            topHeight: feature.topHeight,
+            bottomHeight: feature.bottomHeight,
+          });
+          break;
+        }
+      }
+    }
+    return waterfalls;
+  }
+
   pointAtHeight(s, z, height) {
     const theta = this.wrapS(s) / this.radius;
     const radial = new THREE.Vector3(Math.cos(theta), Math.sin(theta), 0);
@@ -415,14 +731,16 @@ export class CylinderWorld {
     if (channel > 0.12) {
       return this.colorScratch.copy(SOIL_COLOR).lerp(GRASS_COLOR, smooth(1 - channel) * 0.62 + 0.12);
     }
-    const heightMix = THREE.MathUtils.clamp((height - this.baseHeight + 4) / 24, 0, 1);
+    const heightMix = THREE.MathUtils.clamp((height - this.baseHeight + 80) / 650, 0, 1);
     const zone = this.#zoneAt(s, z);
     const biome = this.#biomeAt(s, z, height + rivers.carveDepth);
     const baseColor = zone.type === 'farmland' ? FARMLAND_COLOR : (BIOME_COLORS[biome] || GRASS_COLOR);
     const highColor = biome === 'highlands' ? ROCK_COLOR : HIGH_GRASS_COLOR;
     const highBlend = zone.type === 'farmland' ? 0.55 : biome === 'dryland' ? 0.34 : 0.86;
     const color = this.colorScratch.copy(baseColor).lerp(highColor, heightMix * highBlend);
-    if (height > this.baseHeight + 12) color.lerp(ROCK_COLOR, Math.min(0.62, (height - this.baseHeight - 12) / 12));
+    if (height > this.baseHeight + 320) {
+      color.lerp(ROCK_COLOR, THREE.MathUtils.clamp((height - this.baseHeight - 320) / 520, 0, 0.72));
+    }
     const variation = (this.#noise(s, z, 48, 17) + 1) * 0.045;
     const cropRows = zone.type === 'farmland' ? Math.sin((this.wrapS(s) + z * 0.16) * 0.075) * 0.035 : 0;
     return color.multiplyScalar(0.91 + variation + cropRows);
@@ -501,7 +819,7 @@ export class CylinderWorld {
           const left = THREE.MathUtils.clamp(center - halfWidth, s0, s1);
           const right = THREE.MathUtils.clamp(center + halfWidth, s0, s1);
           if (right - left > 0.05) intersects = true;
-          const height = this.baseTerrainHeight(center, z) - path.depth * 0.76 + 0.12;
+          const height = this.#riverWaterLevel(path, center, z) + 0.12;
           this.pointAtHeight(left, z, height).position.toArray(positions, positions.length);
           positions.length += 3;
           this.pointAtHeight(right, z, height).position.toArray(positions, positions.length);
@@ -515,7 +833,7 @@ export class CylinderWorld {
           const lower = THREE.MathUtils.clamp(center - halfWidth, z0, z0 + sizeZ);
           const upper = THREE.MathUtils.clamp(center + halfWidth, z0, z0 + sizeZ);
           if (upper - lower > 0.05) intersects = true;
-          const height = this.baseTerrainHeight(s, center) - path.depth * 0.76 + 0.12;
+          const height = this.#riverWaterLevel(path, s, center) + 0.12;
           this.pointAtHeight(s, lower, height).position.toArray(positions, positions.length);
           positions.length += 3;
           this.pointAtHeight(s, upper, height).position.toArray(positions, positions.length);
@@ -682,8 +1000,17 @@ export class CylinderWorld {
         const s = s0 + localS;
         const z = z0 + localZ;
         if (this.riverDistance(s, z) < this.riverWidth / 2 + this.riverBank + 16) continue;
+        const buildingKind = zone.type === 'village'
+          ? `${hash01(this.seed, column, row, 1399 + sample) < 0.62 ? 'houseOneStory' : 'houseTwoStory'}${hash01(this.seed, column, row, 1398 + sample) < 0.7 ? 'OpenDoor' : ''}`
+          : zone.type;
         const dimensions = zone.type === 'village'
-          ? { width: 9 + hash01(this.seed, column, row, 1400 + sample) * 8, depth: 9 + hash01(this.seed, column, row, 1401 + sample) * 8, height: 4 + hash01(this.seed, column, row, 1402 + sample) * 9 }
+          ? {
+            width: 8 + hash01(this.seed, column, row, 1400 + sample) * 4,
+            depth: 8 + hash01(this.seed, column, row, 1401 + sample) * 6,
+            height: buildingKind.startsWith('houseOneStory')
+              ? 3.5 + hash01(this.seed, column, row, 1402 + sample) * 0.5
+              : 6.5 + hash01(this.seed, column, row, 1402 + sample) * 1.5,
+          }
           : zone.type === 'smallCity'
             ? { width: 11 + hash01(this.seed, column, row, 1400 + sample) * 9, depth: 11 + hash01(this.seed, column, row, 1401 + sample) * 11, height: 8 + hash01(this.seed, column, row, 1402 + sample) * 26 }
             : { width: 13 + hash01(this.seed, column, row, 1400 + sample) * 13, depth: 13 + hash01(this.seed, column, row, 1401 + sample) * 13, height: 12 + hash01(this.seed, column, row, 1402 + sample) * 38 };
@@ -699,7 +1026,7 @@ export class CylinderWorld {
         buildings.push({
           s,
           z,
-          kind: zone.type,
+          kind: buildingKind,
           ...dimensions,
           yaw: (hash01(this.seed, column, row, 1403 + sample) < 0.5 ? 0 : Math.PI / 2)
             + (hash01(this.seed, column, row, 1404 + sample) - 0.5) * 0.12,
@@ -707,7 +1034,7 @@ export class CylinderWorld {
         placed++;
       }
 
-      if (zone.type === 'largeCity' && hash01(this.seed, column, row, 1450) < 0.12) {
+      if (zone.type === 'largeCity' && hash01(this.seed, column, row, 1450) < 0.008) {
         const localS = sizeS * (0.3 + hash01(this.seed, column, row, 1451) * 0.4);
         const localZ = sizeZ * (0.3 + hash01(this.seed, column, row, 1452) * 0.4);
         const s = s0 + localS;
@@ -717,9 +1044,9 @@ export class CylinderWorld {
             s,
             z,
             kind: 'skyscraper',
-            width: 19 + hash01(this.seed, column, row, 1453) * 12,
-            depth: 19 + hash01(this.seed, column, row, 1454) * 12,
-            height: 88 + hash01(this.seed, column, row, 1455) * 122,
+            width: 24 + hash01(this.seed, column, row, 1453) * 18,
+            depth: 24 + hash01(this.seed, column, row, 1454) * 18,
+            height: 100 + hash01(this.seed, column, row, 1455) * 400,
             yaw: hash01(this.seed, column, row, 1456) < 0.5 ? 0 : Math.PI / 2,
           });
         }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createBuildingArchetypeGeometries } from '../houses/oneill-cylinder/tools/asset-kit.js';
+import { createExteriorStructures } from '../houses/oneill-cylinder/tools/exterior-kit.js';
 import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js';
 
 const canvas = document.querySelector('#world');
@@ -7,7 +8,10 @@ const loading = document.querySelector('#loading');
 const loadingStatus = document.querySelector('#loading-status');
 const progress = document.querySelector('#progress');
 const isTouch = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
-const playerEyeHeight = isTouch ? 1.62 : 1.66;
+const PLAYER_EYE_HEIGHT_M = 1.7272;
+const PLAYER_BODY_HEIGHT_M = 1.8288;
+const PLAYER_COLLISION_RADIUS_M = 0.32;
+const playerEyeHeight = PLAYER_EYE_HEIGHT_M;
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: !isTouch,
@@ -36,18 +40,39 @@ const terrainMaterial = new THREE.MeshStandardMaterial({
 });
 const riverMaterial = new THREE.MeshStandardMaterial({
   color: 0x6ba9ae,
-  roughness: 0.28,
+  roughness: 0.16,
+  metalness: 0.02,
+  side: THREE.DoubleSide,
+});
+const seaMaterial = new THREE.MeshStandardMaterial({
+  color: 0x3e8690,
+  roughness: 0.13,
   metalness: 0.04,
+  side: THREE.DoubleSide,
+});
+const waterfallMaterial = new THREE.MeshPhysicalMaterial({
+  color: 0xa9dfe2,
+  roughness: 0.18,
+  metalness: 0,
+  transparent: true,
+  opacity: 0.74,
+  depthWrite: false,
   side: THREE.DoubleSide,
 });
 const barkMaterial = new THREE.MeshStandardMaterial({ color: 0x665039, roughness: 1 });
 const pineMaterial = new THREE.MeshStandardMaterial({ color: 0x355d43, roughness: 1 });
 const roundTreeMaterial = new THREE.MeshStandardMaterial({ color: 0x64804e, roughness: 1 });
 const buildingMaterials = {
+  houseOneStory: new THREE.MeshStandardMaterial({ color: 0xcab798, roughness: 0.94, side: THREE.DoubleSide }),
+  houseOneStoryOpenDoor: new THREE.MeshStandardMaterial({ color: 0xcab798, roughness: 0.94, side: THREE.DoubleSide }),
+  houseTwoStory: new THREE.MeshStandardMaterial({ color: 0xb7a58a, roughness: 0.91, side: THREE.DoubleSide }),
+  houseTwoStoryOpenDoor: new THREE.MeshStandardMaterial({ color: 0xb7a58a, roughness: 0.91, side: THREE.DoubleSide }),
   village: new THREE.MeshStandardMaterial({ color: 0xc0a882, roughness: 0.96 }),
   smallCity: new THREE.MeshStandardMaterial({ color: 0x9d9b8f, roughness: 0.9 }),
   largeCity: new THREE.MeshStandardMaterial({ color: 0x898f90, roughness: 0.86 }),
   skyscraper: new THREE.MeshStandardMaterial({ color: 0x728d91, metalness: 0.22, roughness: 0.4 }),
+  megaPyramid: new THREE.MeshStandardMaterial({ color: 0x978570, roughness: 0.92, side: THREE.DoubleSide }),
+  wizardTower: new THREE.MeshStandardMaterial({ color: 0x777a86, metalness: 0.12, roughness: 0.72, side: THREE.DoubleSide }),
   farm: new THREE.MeshStandardMaterial({ color: 0xa77d4f, roughness: 0.97 }),
 };
 const buildingGeometries = createBuildingArchetypeGeometries(THREE);
@@ -59,6 +84,7 @@ const lakeMaterial = new THREE.MeshStandardMaterial({
 });
 const localRoadMaterial = new THREE.MeshStandardMaterial({ color: 0x756c59, roughness: 1, side: THREE.DoubleSide });
 const arterialRoadMaterial = new THREE.MeshStandardMaterial({ color: 0x5e625d, roughness: 0.98, side: THREE.DoubleSide });
+const roadShoulderMaterial = new THREE.MeshStandardMaterial({ color: 0x8b8068, roughness: 1, side: THREE.DoubleSide });
 const fieldFurrowMaterials = [
   new THREE.MeshStandardMaterial({ color: 0x677a3e, roughness: 1 }),
   new THREE.MeshStandardMaterial({ color: 0x978352, roughness: 1 }),
@@ -68,10 +94,6 @@ const backdropMaterial = new THREE.MeshBasicMaterial({
   side: THREE.DoubleSide,
   fog: false,
   toneMapped: false,
-});
-const endRingMaterial = new THREE.MeshBasicMaterial({
-  color: 0x566a62,
-  side: THREE.DoubleSide,
 });
 const interiorBackground = new THREE.Color(0xaec7c8);
 const exteriorBackground = new THREE.Color(0x03080d);
@@ -86,12 +108,6 @@ const airlockAccentMaterial = new THREE.MeshStandardMaterial({
   emissive: 0x37170b,
   metalness: 0.54,
   roughness: 0.62,
-});
-const exteriorHullMaterial = new THREE.MeshStandardMaterial({
-  color: 0x56616a,
-  metalness: 0.78,
-  roughness: 0.57,
-  side: THREE.FrontSide,
 });
 const tramRailMaterial = new THREE.MeshStandardMaterial({
   color: 0x56615f,
@@ -121,9 +137,6 @@ const trunkGeometry = new THREE.CylinderGeometry(0.17, 0.27, 3.8, 5);
 const pineCrownGeometry = new THREE.ConeGeometry(2.25, 5.4, 6);
 const roundCrownGeometry = new THREE.DodecahedronGeometry(2.25, 0);
 const unitBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
-const lakeUnitGeometry = new THREE.CircleGeometry(1, 32);
-lakeUnitGeometry.rotateX(-Math.PI / 2);
-
 let world;
 let ready = false;
 let lastFrame = performance.now();
@@ -134,7 +147,6 @@ let backdrop;
 let backdropZBucket = Number.NaN;
 let backdropAnchorS = Number.NaN;
 let backdropNeedsRefresh = false;
-let exteriorHull;
 let exteriorStars;
 let tramRoot;
 let tramPositionZ = 0;
@@ -339,39 +351,28 @@ function addExteriorStars() {
 }
 
 function addCylinderEndcaps() {
-  const exteriorGeometry = new THREE.CylinderGeometry(
-    world.radius + 4,
-    world.radius + 4,
-    world.axialHalfLength * 2,
-    48,
-    1,
-    true,
-  );
-  exteriorHull = new THREE.Mesh(exteriorGeometry, exteriorHullMaterial);
-  exteriorHull.rotation.x = Math.PI / 2;
-  exteriorHull.name = 'simple exterior pressure hull';
-  scene.add(exteriorHull);
-
-  for (const sign of [-1, 1]) {
-    const z = sign * world.axialHalfLength;
-    const bulkhead = new THREE.Mesh(
-      new THREE.RingGeometry(AIRLOCK_CLEAR_RADIUS + 4, world.radius + 6, 96),
-      endRingMaterial,
-    );
-    bulkhead.position.z = z;
-    bulkhead.name = 'annular end bulkhead with open axial port';
-    scene.add(bulkhead);
-
-    const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(world.radius + 2, 2.4, 8, 96),
-      airlockFrameMaterial,
-    );
-    rim.position.z = z;
-    rim.name = 'cylinder end structural rim';
-    scene.add(rim);
-    addAirlock(sign);
-  }
+  world.hullRadius = world.hullRadius || world.radius + 1000;
+  scene.add(createExteriorStructures(THREE, world));
+  for (const sign of [-1, 1]) addAirlock(sign);
   addExteriorStars();
+}
+
+function addLandmarks() {
+  for (const landmark of world.landmarks || []) {
+    const geometry = buildingGeometries[landmark.kind];
+    const material = buildingMaterials[landmark.kind];
+    if (!geometry || !material) continue;
+    const terrainHeight = world.terrainHeight(landmark.s, landmark.z);
+    const pose = world.pointAtHeight(landmark.s, landmark.z, terrainHeight + landmark.height / 2);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.copy(pose.position);
+    mesh.quaternion.copy(makeSurfaceQuaternion(pose, landmark.yaw || 0));
+    mesh.scale.set(landmark.width, landmark.height, landmark.depth);
+    mesh.name = `seeded landmark · ${landmark.kind}`;
+    mesh.userData.landmark = landmark;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+  }
 }
 
 function addTramSystem() {
@@ -495,20 +496,106 @@ function addBuildings(group, placements) {
   }
 }
 
-function addLakes(group, lakes, column, row) {
-  if (!lakes.length) return;
+function addWaterBodies(group, column, row) {
+  if (!world.waterBodiesForChunk) return;
   const sizeS = world.circumferentialChunkSize;
   const z0 = world.chunkStartZ(row);
-  for (const lake of lakes) {
-    const s = column * sizeS + lake.localS;
-    const z = z0 + lake.localZ;
-    const waterHeight = world.terrainHeight(s, z) + lake.waterLevelOffset;
-    const pose = world.pointAtHeight(s, z, waterHeight);
-    const mesh = new THREE.Mesh(lakeUnitGeometry, lakeMaterial);
-    mesh.position.copy(pose.position);
-    mesh.quaternion.copy(makeSurfaceQuaternion(pose, lake.yaw));
-    mesh.scale.set(lake.radiusS, 1, lake.radiusZ);
-    mesh.name = 'seeded basin lake';
+  const chunkStartS = column * sizeS;
+  const chunkCenterS = chunkStartS + sizeS / 2;
+  const chunkEndS = chunkStartS + sizeS;
+  const chunkEndZ = z0 + world.chunkSize;
+
+  for (const body of world.waterBodiesForChunk(column, row)) {
+    const radiusS = Math.max(1, body.radiusS || body.radius || 1);
+    const radiusZ = Math.max(1, body.radiusZ || body.radius || 1);
+    const yaw = body.yaw || 0;
+    const extentS = Math.hypot(radiusS * Math.cos(yaw), radiusZ * Math.sin(yaw));
+    const extentZ = Math.hypot(radiusS * Math.sin(yaw), radiusZ * Math.cos(yaw));
+    const centerS = chunkCenterS - world.shortestDeltaS(chunkCenterS, body.s);
+    const centerZ = body.z;
+    const minS = Math.max(chunkStartS, centerS - extentS);
+    const maxS = Math.min(chunkEndS, centerS + extentS);
+    const minZ = Math.max(z0, centerZ - extentZ);
+    const maxZ = Math.min(chunkEndZ, centerZ + extentZ);
+    if (minS >= maxS || minZ >= maxZ) continue;
+
+    const step = body.type === 'sea' ? 28 : 12;
+    const columns = Math.max(1, Math.ceil((maxS - minS) / step));
+    const rows = Math.max(1, Math.ceil((maxZ - minZ) / step));
+    const positions = [];
+    const valid = new Uint8Array((columns + 1) * (rows + 1));
+    const points = new Int32Array(valid.length);
+    points.fill(-1);
+    const waterLevel = Number.isFinite(body.waterLevel) ? body.waterLevel : 0;
+
+    for (let iz = 0; iz <= rows; iz++) {
+      const z = minZ + (maxZ - minZ) * iz / rows;
+      for (let ix = 0; ix <= columns; ix++) {
+        const s = minS + (maxS - minS) * ix / columns;
+        const ds = world.shortestDeltaS(s, centerS);
+        const dz = z - centerZ;
+        const localS = ds * Math.cos(yaw) + dz * Math.sin(yaw);
+        const localZ = -ds * Math.sin(yaw) + dz * Math.cos(yaw);
+        const inside = (localS * localS) / (radiusS * radiusS)
+          + (localZ * localZ) / (radiusZ * radiusZ) <= 1;
+        if (!inside || world.terrainHeight(s, z) > waterLevel) continue;
+        const index = iz * (columns + 1) + ix;
+        const point = world.pointAtHeight(s, z, waterLevel).position;
+        point.toArray(positions, positions.length);
+        points[index] = positions.length / 3 - 1;
+        valid[index] = 1;
+      }
+    }
+
+    const indices = [];
+    for (let iz = 0; iz < rows; iz++) {
+      for (let ix = 0; ix < columns; ix++) {
+        const a = iz * (columns + 1) + ix;
+        const b = a + 1;
+        const c = a + columns + 1;
+        const d = c + 1;
+        if (!valid[a] || !valid[b] || !valid[c] || !valid[d]) continue;
+        indices.push(points[a], points[c], points[b], points[b], points[c], points[d]);
+      }
+    }
+    if (!indices.length) continue;
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, body.type === 'sea' ? seaMaterial : lakeMaterial);
+    mesh.name = body.type === 'sea' ? 'terrain-conforming seeded inland sea' : 'terrain-conforming seeded lake';
+    mesh.userData.streamGeometry = true;
+    group.add(mesh);
+  }
+}
+
+function addWaterfalls(group, column, row) {
+  if (!world.waterfallsForChunk) return;
+  for (const fall of world.waterfallsForChunk(column, row)) {
+    const width = Math.max(2, Number(fall.width) || 2);
+    const topHeight = Number(fall.topHeight);
+    const bottomHeight = Number(fall.bottomHeight);
+    if (!Number.isFinite(topHeight) || !Number.isFinite(bottomHeight) || topHeight <= bottomHeight) continue;
+    const acrossAxis = fall.orientation === 'longitudinal' || fall.orientation === 'axial' ? 's' : 'z';
+    const positions = [];
+    for (const height of [topHeight, bottomHeight]) {
+      for (const offset of [-width / 2, width / 2]) {
+        const s = fall.s + (acrossAxis === 's' ? offset : 0);
+        const z = fall.z + (acrossAxis === 'z' ? offset : 0);
+        world.pointAtHeight(s, z, height).position.toArray(positions, positions.length);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex([0, 2, 1, 1, 2, 3]);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, waterfallMaterial);
+    mesh.name = 'procedural terrain waterfall';
+    mesh.userData.streamGeometry = true;
     group.add(mesh);
   }
 }
@@ -518,8 +605,8 @@ function addRoads(group, roads, column, row) {
   const sizeS = world.circumferentialChunkSize;
   const z0 = world.chunkStartZ(row);
   const buckets = {
-    local: { positions: [], indices: [] },
-    arterial: { positions: [], indices: [] },
+    local: { positions: [], indices: [], shoulders: [], shoulderIndices: [] },
+    arterial: { positions: [], indices: [], shoulders: [], shoulderIndices: [] },
   };
   for (const road of roads) {
     const bucket = buckets[road.kind === 'arterial' ? 'arterial' : 'local'];
@@ -527,37 +614,88 @@ function addRoads(group, roads, column, row) {
     const dz = road.endZ - road.startZ;
     const length = Math.hypot(dx, dz);
     if (length < 0.2) continue;
-    const normalS = -dz / length * road.width / 2;
-    const normalZ = dx / length * road.width / 2;
     const aS = column * sizeS + road.startS;
     const aZ = z0 + road.startZ;
-    const bS = column * sizeS + road.endS;
-    const bZ = z0 + road.endZ;
-    const corners = [
-      [aS + normalS, aZ + normalZ],
-      [aS - normalS, aZ - normalZ],
-      [bS + normalS, bZ + normalZ],
-      [bS - normalS, bZ - normalZ],
-    ];
-    const base = bucket.positions.length / 3;
-    for (const [s, z] of corners) {
-      world.pointAtHeight(s, z, world.terrainHeight(s, z) + 0.28).position.toArray(bucket.positions, bucket.positions.length);
+    const segments = Math.max(1, Math.ceil(length / 6));
+    const roadBase = bucket.positions.length / 3;
+    const shoulderBase = bucket.shoulders.length / 3;
+    const shoulderHalfWidth = road.width / 2 + 1.1;
+    const crossSection = (t, lateral, edgeOffset = 0) => {
+      const centerS = aS + dx * t;
+      const centerZ = aZ + dz * t;
+      const s = centerS + (-dz / length) * lateral;
+      const z = centerZ + (dx / length) * lateral;
+      let height = world.terrainHeight(s, z) + edgeOffset;
+
+      if (world.riverDistance && world.riverWaterHeight) {
+        const riverDistance = world.riverDistance(centerS, centerZ);
+        const bridgeReach = (world.riverWidth || 20) / 2 + 12;
+        if (riverDistance < bridgeReach) {
+          const bridgeHeight = world.riverWaterHeight(centerS, centerZ) + 2.6;
+          const bridgeBlend = 1 - THREE.MathUtils.smoothstep(riverDistance, (world.riverWidth || 20) / 2, bridgeReach);
+          height += Math.max(0, bridgeHeight - height) * bridgeBlend;
+        }
+      }
+
+      return world.pointAtHeight(s, z, height).position;
+    };
+
+    for (let station = 0; station <= segments; station++) {
+      const t = station / segments;
+      for (const lateral of [-road.width / 2, 0, road.width / 2]) {
+        const camber = Math.abs(lateral) < 0.001 ? 0.12 : 0.04;
+        crossSection(t, lateral, camber).toArray(bucket.positions, bucket.positions.length);
+      }
+      for (const lateral of [-shoulderHalfWidth, -road.width / 2, road.width / 2, shoulderHalfWidth]) {
+        crossSection(t, lateral, 0.015).toArray(bucket.shoulders, bucket.shoulders.length);
+      }
     }
-    bucket.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+
+    for (let station = 0; station < segments; station++) {
+      const roadA = roadBase + station * 3;
+      const roadB = roadA + 3;
+      bucket.indices.push(
+        roadA, roadA + 1, roadB,
+        roadA + 1, roadB + 1, roadB,
+        roadA + 1, roadA + 2, roadB + 1,
+        roadA + 2, roadB + 2, roadB + 1,
+      );
+
+      const shoulderA = shoulderBase + station * 4;
+      const shoulderB = shoulderA + 4;
+      bucket.shoulderIndices.push(
+        shoulderA, shoulderA + 1, shoulderB,
+        shoulderA + 1, shoulderB + 1, shoulderB,
+        shoulderA + 2, shoulderA + 3, shoulderB + 2,
+        shoulderA + 3, shoulderB + 3, shoulderB + 2,
+      );
+    }
   }
 
   for (const kind of ['local', 'arterial']) {
     const values = buckets[kind];
-    if (!values.positions.length) continue;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(values.positions, 3));
-    geometry.setIndex(values.indices);
-    geometry.computeVertexNormals();
-    geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, kind === 'arterial' ? arterialRoadMaterial : localRoadMaterial);
-    mesh.name = `${kind} roads ${column}:${row}`;
-    mesh.userData.streamGeometry = true;
-    group.add(mesh);
+    if (values.shoulders.length) {
+      const shoulderGeometry = new THREE.BufferGeometry();
+      shoulderGeometry.setAttribute('position', new THREE.Float32BufferAttribute(values.shoulders, 3));
+      shoulderGeometry.setIndex(values.shoulderIndices);
+      shoulderGeometry.computeVertexNormals();
+      shoulderGeometry.computeBoundingSphere();
+      const shoulderMesh = new THREE.Mesh(shoulderGeometry, roadShoulderMaterial);
+      shoulderMesh.name = `${kind} graded shoulders ${column}:${row}`;
+      shoulderMesh.userData.streamGeometry = true;
+      group.add(shoulderMesh);
+    }
+    if (values.positions.length) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(values.positions, 3));
+      geometry.setIndex(values.indices);
+      geometry.computeVertexNormals();
+      geometry.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geometry, kind === 'arterial' ? arterialRoadMaterial : localRoadMaterial);
+      mesh.name = `${kind} terrain-graded roads ${column}:${row}`;
+      mesh.userData.streamGeometry = true;
+      group.add(mesh);
+    }
   }
 }
 
@@ -631,7 +769,8 @@ function buildChunk(column, row) {
   const placements = getPlacements(column, row);
   addTrees(group, placements.trees);
   addBuildings(group, placements.buildings);
-  addLakes(group, placements.lakes, column, row);
+  addWaterBodies(group, column, row);
+  addWaterfalls(group, column, row);
   addRoads(group, placements.roads, column, row);
   addFarmland(group, placements.farmland, column, row);
   chunkRoots.add(group);
@@ -985,7 +1124,7 @@ function farWallElevation(s = player.s, z = player.z) {
 }
 
 function distanceFromHull(position) {
-  const radialGap = Math.max(0, Math.hypot(position.x, position.y) - (world.radius + 4));
+  const radialGap = Math.max(0, Math.hypot(position.x, position.y) - world.hullRadius);
   const axialGap = Math.max(0, Math.abs(position.z) - world.axialHalfLength);
   return Math.hypot(radialGap, axialGap);
 }
@@ -1170,7 +1309,7 @@ function updateViewRange() {
     scene.fog.near = Math.round(viewRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
     scene.fog.far = Math.round(viewRangeMeters * VIEW_RANGE_FOG_FAR_RATIO);
   }
-  camera.far = Math.max(world.radius * 2 + 420, viewRangeMeters * 1.2);
+  camera.far = Math.max(world.hullRadius * 2 + 420, viewRangeMeters * 1.2);
   camera.updateProjectionMatrix();
   const chunksLabel = document.querySelector('#chunks');
   if (chunksLabel) {
@@ -1400,7 +1539,7 @@ function advanceInteriorMovement(gamepad, dt, movementSpeed) {
 
 function entersCylinderHull(position) {
   return Math.abs(position.z) < world.axialHalfLength
-    && Math.hypot(position.x, position.y) < world.radius + 8;
+    && Math.hypot(position.x, position.y) < world.hullRadius + 8;
 }
 
 function enterExterior(sign) {
@@ -1469,6 +1608,52 @@ function advanceExteriorMovement(gamepad, dt, movementSpeed) {
   }
 }
 
+function pointSegmentDistanceSquared(px, pz, x1, z1, x2, z2) {
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const lengthSquared = dx * dx + dz * dz;
+  const t = lengthSquared > 1e-8
+    ? THREE.MathUtils.clamp(((px - x1) * dx + (pz - z1) * dz) / lengthSquared, 0, 1)
+    : 0;
+  const nearX = x1 + t * dx;
+  const nearZ = z1 + t * dz;
+  return (px - nearX) ** 2 + (pz - nearZ) ** 2;
+}
+
+function collidesWithBuilding(s, z, building, playerRadius = PLAYER_COLLISION_RADIUS_M) {
+  const ds = world.shortestDeltaS(s, building.s);
+  const dz = z - building.z;
+  const yaw = building.yaw || 0;
+  const localS = ds * Math.cos(yaw) - dz * Math.sin(yaw);
+  const localZ = ds * Math.sin(yaw) + dz * Math.cos(yaw);
+  const wallRadius = playerRadius + Math.min(0.2, building.width * 0.02);
+
+  if (/^house|^village$/.test(building.kind)) {
+    const halfWidth = building.width * 0.48;
+    const rearZ = -building.depth * 0.5;
+    const frontZ = building.depth * 0.28;
+    const doorHalfWidth = building.width * 0.279 / 2;
+    const isTwoStory = building.kind.includes('TwoStory') || building.kind === 'village';
+    const doorHeight = building.height * (isTwoStory ? 0.306 : 0.6);
+    const doorwayFits = doorHeight >= PLAYER_BODY_HEIGHT_M
+      && doorHalfWidth * 2 >= playerRadius * 2;
+    const nearWall = (x1, z1, x2, z2) => (
+      pointSegmentDistanceSquared(localS, localZ, x1, z1, x2, z2) < wallRadius * wallRadius
+    );
+
+    if (nearWall(-halfWidth, rearZ, -halfWidth, frontZ)
+      || nearWall(halfWidth, rearZ, halfWidth, frontZ)
+      || nearWall(-halfWidth, rearZ, halfWidth, rearZ)) return true;
+    if (!doorwayFits) return nearWall(-halfWidth, frontZ, halfWidth, frontZ);
+    return nearWall(-halfWidth, frontZ, -doorHalfWidth, frontZ)
+      || nearWall(doorHalfWidth, frontZ, halfWidth, frontZ);
+  }
+
+  const localHalfWidth = building.width / 2 + playerRadius;
+  const localHalfDepth = building.depth / 2 + playerRadius;
+  return Math.abs(localS) < localHalfWidth && Math.abs(localZ) < localHalfDepth;
+}
+
 function isBlocked(s, z) {
   const chunkSizeS = world.circumferentialChunkSize;
   const chunkSizeZ = world.chunkSize;
@@ -1488,14 +1673,12 @@ function isBlocked(s, z) {
         if (ds * ds + dzFromTree * dzFromTree < 0.72 * 0.72) return true;
       }
       for (const building of buildings) {
-        const ds = world.shortestDeltaS(s, building.s);
-        const dzFromBuilding = z - building.z;
-        const localS = ds * Math.cos(building.yaw) - dzFromBuilding * Math.sin(building.yaw);
-        const localZ = ds * Math.sin(building.yaw) + dzFromBuilding * Math.cos(building.yaw);
-        if (Math.abs(localS) < building.width / 2 + 0.65
-          && Math.abs(localZ) < building.depth / 2 + 0.65) return true;
+        if (collidesWithBuilding(s, z, building)) return true;
       }
     }
+  }
+  for (const landmark of world.landmarks || []) {
+    if (collidesWithBuilding(s, z, landmark)) return true;
   }
   return false;
 }
@@ -1805,6 +1988,7 @@ async function start() {
     const config = await response.json();
     const seed = getSeed(config);
     world = new CylinderWorld(config, seed);
+    world.hullRadius = world.hullRadius || world.radius + 1000;
     document.querySelector('#seed').textContent = `Seed ${seed}`;
     document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m diameter`;
     scene.fog = new THREE.Fog(interiorBackground, config.streaming.fogNearMeters, config.streaming.fogFarMeters);
@@ -1815,6 +1999,7 @@ async function start() {
     updateRunButton();
     updateMovementHint();
     addCylinderEndcaps();
+    addLandmarks();
     addTramSystem();
     backdropAnchorS = 0;
     backdropZBucket = 0;

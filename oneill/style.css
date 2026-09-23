@@ -185,12 +185,12 @@ h1, h2, p { margin-top: 0; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 10px;
-  padding: 7px 10px 8px;
-  border: 1px solid rgb(68 103 75 / 24%);
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgb(50 76 56 / 28%);
   border-radius: 9px;
-  background: rgb(222 233 211 / 88%);
-  color: #395a3e;
+  background: rgb(49 72 54 / 91%);
+  color: #e8f0df;
   font-variant-numeric: tabular-nums;
 }
 
@@ -201,8 +201,8 @@ h1, h2, p { margin-top: 0; }
 }
 
 #movement-speed-value {
-  color: #274d31;
-  font-size: 19px;
+  color: #f3f5e7;
+  font-size: 23px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
