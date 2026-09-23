@@ -16,7 +16,7 @@
     <h1>Green Reach</h1>
     <div class="world-stats">
       <span id="seed">Seed 1847</span>
-      <span id="diameter">6,000 m habitat diameter</span>
+      <span id="diameter">3,000 m habitat diameter</span>
       <span id="chunks">Preparing landscape…</span>
       <span id="location">Surface 0 · 0</span>
       <span id="region">Region · Grassland</span>
@@ -71,12 +71,18 @@
     </label>
     <input id="run-speed" type="range" min="5" max="2000" step="0.1" value="7.2">
     <div class="speed-range-labels"><span>5.0 m/s</span><span>2,000 m/s</span></div>
-    <label class="run-speed-label view-range-label" for="view-range">
-      <span>View range</span>
-      <output id="view-range-value" for="view-range">500 m</output>
+    <label class="run-speed-label view-range-label" for="terrain-range">
+      <span>Terrain distance</span>
+      <output id="terrain-range-value" for="terrain-range">1,600 m</output>
     </label>
-    <input id="view-range" type="range" min="500" max="2200" step="25" value="500">
-    <div class="speed-range-labels"><span>500 m</span><span>2,200 m</span></div>
+    <input id="terrain-range" type="range" min="500" max="3500" step="100" value="1600">
+    <div class="speed-range-labels"><span>500 m</span><span>3,500 m</span></div>
+    <label class="run-speed-label view-range-label" for="scenery-range">
+      <span>Buildings, trees &amp; roads</span>
+      <output id="scenery-range-value" for="scenery-range">800 m</output>
+    </label>
+    <input id="scenery-range" type="range" min="200" max="1600" step="50" value="800">
+    <div class="speed-range-labels"><span>200 m</span><span id="scenery-range-max">1,600 m</span></div>
     <dl class="movement-guide">
       <div><dt>H / R1 / Options</dt><dd>Show or hide this panel</dd></div>
       <div><dt>Shift / L3</dt><dd>Hold to run</dd></div>

@@ -143,6 +143,8 @@ let lastFrame = performance.now();
 let lastStatsTime = 0;
 let currentTileKey = '';
 let pendingChunkKeys = [];
+let pendingSceneryKeys = [];
+let landmarkMeshes = [];
 let backdrop;
 let backdropZBucket = Number.NaN;
 let backdropAnchorS = Number.NaN;
@@ -351,13 +353,14 @@ function addExteriorStars() {
 }
 
 function addCylinderEndcaps() {
-  world.hullRadius = world.hullRadius || world.radius + 1000;
+  world.hullRadius = world.hullRadius || world.radius + (world.groundDepth || 500);
   scene.add(createExteriorStructures(THREE, world));
   for (const sign of [-1, 1]) addAirlock(sign);
   addExteriorStars();
 }
 
 function addLandmarks() {
+  landmarkMeshes = [];
   for (const landmark of world.landmarks || []) {
     const geometry = buildingGeometries[landmark.kind];
     const material = buildingMaterials[landmark.kind];
@@ -371,7 +374,22 @@ function addLandmarks() {
     mesh.name = `seeded landmark · ${landmark.kind}`;
     mesh.userData.landmark = landmark;
     mesh.frustumCulled = false;
+    mesh.visible = false;
     scene.add(mesh);
+    landmarkMeshes.push(mesh);
+  }
+}
+
+function updateLandmarkVisibility() {
+  if (!world || !landmarkMeshes.length) return;
+  const range = Number(world.config.streaming.sceneryDistanceMeters) || 800;
+  const centerS = visibleSurfaceS();
+  for (const mesh of landmarkMeshes) {
+    const landmark = mesh.userData.landmark;
+    const reach = range + Math.hypot(landmark.width, landmark.depth) / 2;
+    const distanceS = Math.abs(world.shortestDeltaS(landmark.s, centerS));
+    const distanceZ = landmark.z - player.z;
+    mesh.visible = !playerOutside && distanceS * distanceS + distanceZ * distanceZ <= reach * reach;
   }
 }
 
@@ -620,6 +638,7 @@ function addRoads(group, roads, column, row) {
     const roadBase = bucket.positions.length / 3;
     const shoulderBase = bucket.shoulders.length / 3;
     const shoulderHalfWidth = road.width / 2 + 1.1;
+    const stationDry = new Uint8Array(segments + 1);
     const crossSection = (t, lateral, edgeOffset = 0) => {
       const centerS = aS + dx * t;
       const centerZ = aZ + dz * t;
@@ -642,6 +661,14 @@ function addRoads(group, roads, column, row) {
 
     for (let station = 0; station <= segments; station++) {
       const t = station / segments;
+      const centerS = aS + dx * t;
+      const centerZ = aZ + dz * t;
+      const halfStation = length / segments / 2;
+      const halfS = Math.abs(dx / length) * halfStation
+        + Math.abs(dz / length) * shoulderHalfWidth;
+      const halfZ = Math.abs(dz / length) * halfStation
+        + Math.abs(dx / length) * shoulderHalfWidth;
+      stationDry[station] = world.isUnderWater?.(centerS, centerZ, halfS, halfZ) ? 0 : 1;
       for (const lateral of [-road.width / 2, 0, road.width / 2]) {
         const camber = Math.abs(lateral) < 0.001 ? 0.12 : 0.04;
         crossSection(t, lateral, camber).toArray(bucket.positions, bucket.positions.length);
@@ -652,6 +679,7 @@ function addRoads(group, roads, column, row) {
     }
 
     for (let station = 0; station < segments; station++) {
+      if (!stationDry[station] || !stationDry[station + 1]) continue;
       const roadA = roadBase + station * 3;
       const roadB = roadA + 3;
       bucket.indices.push(
@@ -674,7 +702,7 @@ function addRoads(group, roads, column, row) {
 
   for (const kind of ['local', 'arterial']) {
     const values = buckets[kind];
-    if (values.shoulders.length) {
+    if (values.shoulderIndices.length) {
       const shoulderGeometry = new THREE.BufferGeometry();
       shoulderGeometry.setAttribute('position', new THREE.Float32BufferAttribute(values.shoulders, 3));
       shoulderGeometry.setIndex(values.shoulderIndices);
@@ -685,7 +713,7 @@ function addRoads(group, roads, column, row) {
       shoulderMesh.userData.streamGeometry = true;
       group.add(shoulderMesh);
     }
-    if (values.positions.length) {
+    if (values.indices.length) {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(values.positions, 3));
       geometry.setIndex(values.indices);
@@ -766,15 +794,26 @@ function buildChunk(column, row) {
     group.add(river);
   }
 
-  const placements = getPlacements(column, row);
-  addTrees(group, placements.trees);
-  addBuildings(group, placements.buildings);
   addWaterBodies(group, column, row);
   addWaterfalls(group, column, row);
-  addRoads(group, placements.roads, column, row);
-  addFarmland(group, placements.farmland, column, row);
   chunkRoots.add(group);
   chunks.set(key, group);
+  if (wantsScenery(column, row)) pendingSceneryKeys.push(key);
+}
+
+function buildChunkScenery(column, row) {
+  const key = `${column}:${row}`;
+  const chunk = chunks.get(key);
+  if (!chunk || chunk.userData.sceneryGroup || !wantsScenery(column, row)) return;
+  const placements = getPlacements(column, row);
+  const group = new THREE.Group();
+  group.name = `nearby scenery ${key}`;
+  addTrees(group, placements.trees);
+  addBuildings(group, placements.buildings);
+  addRoads(group, placements.roads, column, row);
+  addFarmland(group, placements.farmland, column, row);
+  chunk.userData.sceneryGroup = group;
+  chunk.add(group);
 }
 
 function getPlacements(column, row) {
@@ -791,6 +830,16 @@ function disposeChunk(key) {
     if (object.isMesh && object.userData.streamGeometry) object.geometry.dispose();
   });
   chunks.delete(key);
+}
+
+function disposeChunkScenery(group) {
+  const scenery = group?.userData.sceneryGroup;
+  if (!scenery) return;
+  group.remove(scenery);
+  scenery.traverse(object => {
+    if (object.isMesh && object.userData.streamGeometry) object.geometry.dispose();
+  });
+  group.userData.sceneryGroup = null;
 }
 
 function visibleSurfaceS() {
@@ -842,6 +891,21 @@ function surfaceTileKey(s, z) {
   return `${column}:${row}`;
 }
 
+function chunkDistanceSquared(column, row) {
+  const centerS = column * world.circumferentialChunkSize + world.circumferentialChunkSize / 2;
+  const centerZ = world.chunkStartZ(row) + world.chunkSize / 2;
+  const distanceS = Math.abs(world.shortestDeltaS(centerS, visibleSurfaceS()));
+  const distanceZ = Math.abs(centerZ - player.z);
+  return distanceS * distanceS + distanceZ * distanceZ;
+}
+
+function wantsScenery(column, row) {
+  if (playerOutside) return false;
+  const radius = Number(world.config.streaming.sceneryDistanceMeters) || 800;
+  const paddedRadius = radius + Math.hypot(world.circumferentialChunkSize, world.chunkSize) / 2;
+  return chunkDistanceSquared(column, row) <= paddedRadius * paddedRadius;
+}
+
 function reconcileChunks() {
   const needed = neededChunks();
   for (const key of placementCache.keys()) {
@@ -850,6 +914,19 @@ function reconcileChunks() {
   for (const key of chunks.keys()) {
     if (!needed.has(key)) disposeChunk(key);
   }
+  const sceneryTargets = [];
+  for (const [key, group] of chunks) {
+    const [column, row] = key.split(':').map(Number);
+    if (!wantsScenery(column, row)) {
+      disposeChunkScenery(group);
+      placementCache.delete(key);
+    } else if (!group.userData.sceneryGroup) {
+      sceneryTargets.push({ key, distance: chunkDistanceSquared(column, row) });
+    }
+  }
+  pendingSceneryKeys = sceneryTargets
+    .sort((a, b) => a.distance - b.distance)
+    .map(target => target.key);
   pendingChunkKeys = [...needed.entries()]
     .filter(([key]) => !chunks.has(key))
     .sort((a, b) => a[1].distance - b[1].distance)
@@ -864,13 +941,19 @@ function processChunkQueue() {
     const [column, row] = key.split(':').map(Number);
     buildChunk(column, row);
   }
+  const sceneryLimit = isTouch ? 1 : world.config.streaming.sceneryBuiltPerFrame || 2;
+  for (let i = 0; i < sceneryLimit && pendingSceneryKeys.length; i++) {
+    const key = pendingSceneryKeys.shift();
+    const [column, row] = key.split(':').map(Number);
+    buildChunkScenery(column, row);
+  }
   const loaded = chunks.size;
-  const total = loaded + pendingChunkKeys.length;
+  const total = loaded + pendingChunkKeys.length + pendingSceneryKeys.length;
   progress.style.width = total ? `${(loaded / total) * 100}%` : '100%';
-  loadingStatus.textContent = pendingChunkKeys.length
-    ? `Generating nearby terrain and scenery… ${loaded} / ${total} chunks`
+  loadingStatus.textContent = pendingChunkKeys.length || pendingSceneryKeys.length
+    ? `Streaming terrain and nearby scenery… ${loaded} chunks · ${pendingChunkKeys.length} terrain / ${pendingSceneryKeys.length} scenery queued`
     : 'The seeded landscape is ready.';
-  if (!pendingChunkKeys.length && loaded) {
+  if (!pendingChunkKeys.length && !pendingSceneryKeys.length && loaded) {
     ready = true;
     loading.hidden = true;
   }
@@ -1243,8 +1326,10 @@ const controlsToggle = document.querySelector('#controls-toggle');
 const controlsClose = document.querySelector('#controls-close');
 const runSpeedSlider = document.querySelector('#run-speed');
 const runSpeedValue = document.querySelector('#run-speed-value');
-const viewRangeSlider = document.querySelector('#view-range');
-const viewRangeValue = document.querySelector('#view-range-value');
+const terrainRangeSlider = document.querySelector('#terrain-range');
+const terrainRangeValue = document.querySelector('#terrain-range-value');
+const sceneryRangeSlider = document.querySelector('#scenery-range');
+const sceneryRangeValue = document.querySelector('#scenery-range-value');
 const VIEW_RANGE_FOG_NEAR_RATIO = 0.57;
 const VIEW_RANGE_FOG_FAR_RATIO = 1.1;
 let viewRangeRefreshTimer = 0;
@@ -1298,23 +1383,50 @@ function resolveMovementSpeed(gamepad, dt) {
   return movementSpeedMps;
 }
 
-function updateViewRange() {
-  const viewRangeMeters = Number(viewRangeSlider.value);
-  viewRangeValue.value = `${viewRangeMeters.toLocaleString()} m`;
-  viewRangeValue.textContent = viewRangeValue.value;
+function updateStreamingHud() {
   if (!world) return;
-
-  world.config.streaming.visualDistanceMeters = viewRangeMeters;
-  if (scene.fog) {
-    scene.fog.near = Math.round(viewRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
-    scene.fog.far = Math.round(viewRangeMeters * VIEW_RANGE_FOG_FAR_RATIO);
-  }
-  camera.far = Math.max(world.hullRadius * 2 + 420, viewRangeMeters * 1.2);
-  camera.updateProjectionMatrix();
+  const terrainRangeMeters = Number(world.config.streaming.visualDistanceMeters);
+  const sceneryRangeMeters = Number(world.config.streaming.sceneryDistanceMeters);
   const chunksLabel = document.querySelector('#chunks');
   if (chunksLabel) {
-    chunksLabel.textContent = `${chunks.size} chunks loaded · ${viewRangeMeters.toLocaleString()} m view range`;
+    chunksLabel.textContent = `${chunks.size} terrain chunks · ${terrainRangeMeters.toLocaleString()} m terrain · ${sceneryRangeMeters.toLocaleString()} m scenery`;
   }
+}
+
+function updateTerrainRange() {
+  const terrainRangeMeters = Number(terrainRangeSlider.value);
+  terrainRangeValue.value = `${terrainRangeMeters.toLocaleString()} m`;
+  terrainRangeValue.textContent = terrainRangeValue.value;
+  if (!world) return;
+
+  world.config.streaming.visualDistanceMeters = terrainRangeMeters;
+  if (scene.fog) {
+    scene.fog.near = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
+    scene.fog.far = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_FAR_RATIO);
+  }
+  camera.far = Math.max(world.hullRadius * 2 + 420, terrainRangeMeters * 1.2);
+  camera.updateProjectionMatrix();
+  const sceneryStep = Number(sceneryRangeSlider.step) || 50;
+  const sceneryMaximum = Math.max(
+    Number(sceneryRangeSlider.min) || 200,
+    Math.floor(terrainRangeMeters / sceneryStep) * sceneryStep,
+  );
+  sceneryRangeSlider.max = String(sceneryMaximum);
+  document.querySelector('#scenery-range-max').textContent = `${sceneryMaximum.toLocaleString()} m`;
+  if (Number(sceneryRangeSlider.value) > sceneryMaximum) {
+    sceneryRangeSlider.value = String(sceneryMaximum);
+    updateSceneryRange();
+  }
+  updateStreamingHud();
+}
+
+function updateSceneryRange() {
+  const sceneryRangeMeters = Number(sceneryRangeSlider.value);
+  sceneryRangeValue.value = `${sceneryRangeMeters.toLocaleString()} m`;
+  sceneryRangeValue.textContent = sceneryRangeValue.value;
+  if (!world) return;
+  world.config.streaming.sceneryDistanceMeters = sceneryRangeMeters;
+  updateStreamingHud();
 }
 
 function scheduleViewRangeRefresh(immediate = false) {
@@ -1360,15 +1472,24 @@ controlsBackdrop.addEventListener('click', () => setControlsPanelOpen(false));
 document.querySelector('#tram-interact').addEventListener('click', () => { interactQueued = true; });
 runSpeedSlider.addEventListener('input', updateRunSpeed);
 updateRunSpeed();
-viewRangeSlider.addEventListener('input', () => {
-  updateViewRange();
+terrainRangeSlider.addEventListener('input', () => {
+  updateTerrainRange();
   scheduleViewRangeRefresh();
 });
-viewRangeSlider.addEventListener('change', () => {
-  updateViewRange();
+terrainRangeSlider.addEventListener('change', () => {
+  updateTerrainRange();
   scheduleViewRangeRefresh(true);
 });
-updateViewRange();
+sceneryRangeSlider.addEventListener('input', () => {
+  updateSceneryRange();
+  scheduleViewRangeRefresh();
+});
+sceneryRangeSlider.addEventListener('change', () => {
+  updateSceneryRange();
+  scheduleViewRangeRefresh(true);
+});
+updateTerrainRange();
+updateSceneryRange();
 
 function advanceVerticalMotion(gamepad, dt, movementSpeed) {
   if (jumpQueued) {
@@ -1702,7 +1823,7 @@ function updateHud(now) {
     minimumFractionDigits: speedPrecision,
     maximumFractionDigits: speedPrecision,
   })} m/s`;
-  document.querySelector('#chunks').textContent = `${chunks.size} chunks loaded · ${world.config.streaming.visualDistanceMeters.toLocaleString()} m view range`;
+  updateStreamingHud();
   if (playerOutside) {
     regionLabel.textContent = 'Region · Exterior';
   } else if (tramRiding) {
@@ -1759,8 +1880,9 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, Math.max(0, (now - lastFrame) / 1000));
   lastFrame = now;
-  if (!ready || pendingChunkKeys.length) processChunkQueue();
+  if (!ready || pendingChunkKeys.length || pendingSceneryKeys.length) processChunkQueue();
   if (ready) step(dt);
+  updateLandmarkVisibility();
   updateHud(now);
   renderer.render(scene, camera);
 }
@@ -1988,11 +2110,14 @@ async function start() {
     const config = await response.json();
     const seed = getSeed(config);
     world = new CylinderWorld(config, seed);
-    world.hullRadius = world.hullRadius || world.radius + 1000;
+    world.hullRadius = world.hullRadius || world.radius + (world.groundDepth || 500);
     document.querySelector('#seed').textContent = `Seed ${seed}`;
-    document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m diameter`;
+    document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m habitat diameter`;
     scene.fog = new THREE.Fog(interiorBackground, config.streaming.fogNearMeters, config.streaming.fogFarMeters);
-    updateViewRange();
+    terrainRangeSlider.value = String(config.streaming.visualDistanceMeters || 1600);
+    sceneryRangeSlider.value = String(config.streaming.sceneryDistanceMeters || 800);
+    updateTerrainRange();
+    updateSceneryRange();
     document.querySelector('#touch-controls').hidden = !isTouch;
     syncControllerStatus(connectedGamepad());
     updateTouchActions();

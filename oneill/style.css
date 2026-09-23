@@ -359,9 +359,9 @@ h1, h2, p { margin-top: 0; }
   font-weight: 700;
 }
 
-#run-speed-value, #view-range-value { color: #587755; font-variant-numeric: tabular-nums; }
+#run-speed-value, #terrain-range-value, #scenery-range-value { color: #587755; font-variant-numeric: tabular-nums; }
 
-#run-speed, #view-range {
+#run-speed, #terrain-range, #scenery-range {
   display: block;
   width: 100%;
   margin: 15px 0 6px;

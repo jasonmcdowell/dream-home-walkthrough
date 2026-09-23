@@ -510,21 +510,20 @@ export class CylinderWorld {
     if (this.zoneCache.has(key)) return this.zoneCache.get(key);
     const roll = hash01(this.seed, wrappedColumn, boundedRow, 1100);
     let type = 'wilderness';
-    if (roll < 0.035) type = 'largeCity';
-    else if (roll < 0.115) type = 'smallCity';
-    else if (roll < 0.245) type = 'village';
+    if (roll < 0.03) type = 'largeCity';
+    else if (roll < 0.1) type = 'smallCity';
+    else if (roll < 0.22) type = 'village';
     else if (roll < 0.5) type = 'farmland';
     const centerS = (wrappedColumn + 0.5) * this.zoneSizeS;
     const centerZ = -this.axialHalfLength + (boundedRow + 0.5) * this.zoneSizeZ;
     const biome = this.#biomeAt(centerS, centerZ, this.baseTerrainHeight(centerS, centerZ));
     const lakeRoll = hash01(this.seed, wrappedColumn, boundedRow, 1101);
-    const lakeChance = type === 'farmland'
-      ? (Number(this.config.landscape.lakeChanceInFarmZones) || 0.025)
-      : type === 'wilderness'
-        ? biome === 'wetland'
-          ? (Number(this.config.landscape.lakeChanceInWetlands) || 0.14)
-          : (Number(this.config.landscape.lakeChanceInWildZones) || 0.055)
-        : 0;
+    // Water placement follows terrain and biome, independent of land-use zoning.
+    // Wetlands get more lakes, but cities and farms can also contain water; their
+    // scenery placement checks remove dry-land assets from those wet footprints.
+    const lakeChance = biome === 'wetland'
+      ? (Number(this.config.landscape.lakeChanceInWetlands) || 0.12)
+      : (Number(this.config.landscape.lakeChanceInOtherBiomes) || 0.035);
     const zone = {
       column: wrappedColumn,
       row: boundedRow,
@@ -584,17 +583,14 @@ export class CylinderWorld {
       for (let attempt = 0; attempt < 48; attempt++) {
         const s = hash01(this.seed, 3200 + index, attempt, 1) * this.circumference;
         const z = (hash01(this.seed, 3300 + index, attempt, 2) - 0.5) * this.config.surface.axialLengthMeters * 0.68;
-        if (this.#ellipseRadius(s, z, this.inlandSea) < 1.2) continue;
+        if (this.#ellipseRadius(s, z, this.inlandSea) < 1.2
+          || this.isUnderWater(s, z, footprintMax / 2, footprintMax / 2)) continue;
         const groundHeight = this.terrainHeight(s, z);
         if (groundHeight + height > this.radius * 0.82) continue;
         position = { s, z, groundHeight };
         break;
       }
-      if (!position) {
-        const s = this.wrapS(this.inlandSea.s + this.circumference / 2);
-        const z = 0;
-        position = { s, z, groundHeight: this.terrainHeight(s, z) };
-      }
+      if (!position) return null;
       const footprint = footprintMin + hash01(this.seed, 3400 + index, 0, 3) * (footprintMax - footprintMin);
       return {
         kind,
@@ -609,12 +605,11 @@ export class CylinderWorld {
         yaw: hash01(this.seed, 3500 + index, 0, 4) * TAU,
       };
     };
-    const landmarks = [
-      createLandmark('megaPyramid', 0, 1500, 1000, 1600),
-    ];
+    const landmarks = [createLandmark('megaPyramid', 0, 850, 700, 1100)].filter(Boolean);
     for (let i = 0; i < 3; i++) {
-      const height = 250 + hash01(this.seed, 3600 + i, 0, 5) * 250;
-      landmarks.push(createLandmark('wizardTower', i + 1, height, 35, 70));
+      const height = 150 + hash01(this.seed, 3600 + i, 0, 5) * 150;
+      const tower = createLandmark('wizardTower', i + 1, height, 30, 55);
+      if (tower) landmarks.push(tower);
     }
     return landmarks;
   }
@@ -675,6 +670,63 @@ export class CylinderWorld {
     return this.#allWaterBodies()
       .filter(body => this.#bodyIntersectsChunk(body, s0, z0, sizeS, sizeZ))
       .map(body => ({ ...body }));
+  }
+
+  isUnderWater(s, z, halfS = 0, halfZ = halfS) {
+    halfS = Math.max(0, halfS);
+    halfZ = Math.max(0, halfZ);
+    const samples = [
+      [0, 0],
+      [-halfS, 0], [halfS, 0], [0, -halfZ], [0, halfZ],
+      [-halfS, -halfZ], [-halfS, halfZ], [halfS, -halfZ], [halfS, halfZ],
+    ];
+    const reach = Math.hypot(halfS, halfZ);
+    for (const body of this.#allWaterBodies()) {
+      const expandedRadius = 1 + reach / Math.max(1, Math.min(body.radiusS, body.radiusZ));
+      if (this.#ellipseRadius(s, z, body) > expandedRadius) continue;
+      const centerDeltaS = this.shortestDeltaS(s, body.s);
+      const centerDeltaZ = z - body.z;
+      const cosYaw = Math.cos(body.yaw || 0);
+      const sinYaw = Math.sin(body.yaw || 0);
+      const invRadiusSSquared = 1 / (body.radiusS * body.radiusS);
+      const invRadiusZSquared = 1 / (body.radiusZ * body.radiusZ);
+      const quadraticS = cosYaw * cosYaw * invRadiusSSquared
+        + sinYaw * sinYaw * invRadiusZSquared;
+      const quadraticCross = cosYaw * sinYaw * (invRadiusSSquared - invRadiusZSquared);
+      const quadraticZ = sinYaw * sinYaw * invRadiusSSquared
+        + cosYaw * cosYaw * invRadiusZSquared;
+      const clamp = (value, extent) => THREE.MathUtils.clamp(value, -extent, extent);
+      const samplesForBody = [...samples];
+
+      // Include the point of closest approach to the ellipse center and the
+      // exact minima along each side of the candidate footprint rectangle.
+      samplesForBody.push([
+        clamp(-centerDeltaS, halfS),
+        clamp(-centerDeltaZ, halfZ),
+      ]);
+      for (const edgeS of [-halfS, halfS]) {
+        const ds = centerDeltaS + edgeS;
+        const dz = clamp(-quadraticCross * ds / quadraticZ, halfZ);
+        samplesForBody.push([edgeS, dz]);
+      }
+      for (const edgeZ of [-halfZ, halfZ]) {
+        const dz = centerDeltaZ + edgeZ;
+        const ds = clamp(-quadraticCross * dz / quadraticS, halfS);
+        samplesForBody.push([ds, edgeZ]);
+      }
+
+      for (const [offsetS, offsetZ] of samplesForBody) {
+        const sampleS = this.wrapS(s + offsetS);
+        const sampleZ = z + offsetZ;
+        if (this.#ellipseRadius(sampleS, sampleZ, body) > 1) continue;
+        if (this.terrainHeight(sampleS, sampleZ) <= body.waterLevel + 0.5) return true;
+      }
+    }
+    return false;
+  }
+
+  footprintCrossesRiver(s, z, halfS = 0, halfZ = halfS) {
+    return this.riverDistance(s, z) <= Math.hypot(halfS, halfZ) + this.riverWidth / 2;
   }
 
   waterfallsForChunk(column, row) {
@@ -907,12 +959,8 @@ export class CylinderWorld {
       const s = s0 + 5 + hash01(this.seed, column, row, 100 + i * 2) * (sizeS - 10);
       const z = z0 + 5 + hash01(this.seed, column, row, 101 + i * 2) * (sizeZ - 10);
       if (this.riverDistance(s, z) < this.riverWidth / 2 + this.riverBank + 5) continue;
-      if (zone.lake) {
-        const ds = this.shortestDeltaS(s, zone.lake.s);
-        const dz = z - zone.lake.z;
-        if ((ds / (zone.lake.radiusS + 8)) ** 2 + (dz / (zone.lake.radiusZ + 8)) ** 2 < 1) continue;
-      }
       const scale = 0.72 + hash01(this.seed, column, row, 300 + i) * 0.75;
+      if (this.isUnderWater(s, z, scale * 3.5, scale * 3.5)) continue;
       const kind = hash01(this.seed, column, row, 500 + i) < roundTreeChance ? 'round' : 'pine';
       trees.push({ s, z, scale, kind, yaw: hash01(this.seed, column, row, 700 + i) * TAU });
     }
@@ -930,7 +978,9 @@ export class CylinderWorld {
 
     const farmlandYaw = hash01(this.seed, zone.column, zone.row, 1200) < 0.5 ? 0 : Math.PI / 2;
     const ownsLake = zone.lake && zone.lake.ownerColumn === column && zone.lake.ownerRow === row;
-    if (zone.type === 'farmland' && !ownsLake) {
+    if (zone.type === 'farmland' && !ownsLake
+      && !this.isUnderWater(zone.centerS, zone.centerZ, sizeS / 2, sizeZ / 2)
+      && !this.footprintCrossesRiver(zone.centerS, zone.centerZ, sizeS / 2, sizeZ / 2)) {
       const width = Math.max(18, sizeS - 12);
       const depth = Math.max(18, sizeZ - 12);
       farmland.push({
@@ -954,14 +1004,14 @@ export class CylinderWorld {
 
     if (zone.type === 'village' || zone.type === 'smallCity' || zone.type === 'largeCity') {
       const targetRange = {
-        village: [2, 4],
-        smallCity: [5, 8],
-        largeCity: [9, 14],
+        village: [2, 3],
+        smallCity: [4, 6],
+        largeCity: [7, 11],
       }[zone.type];
       const range = targetRange[1] - targetRange[0] + 1;
       const targetCount = targetRange[0] + Math.floor(hash01(this.seed, column, row, 1300) * range);
 
-      const targetRoadSpacing = { village: 150, smallCity: 104, largeCity: 68 }[zone.type];
+      const targetRoadSpacing = { village: 160, smallCity: 120, largeCity: 80 }[zone.type];
       const sRoadCount = Math.max(2, Math.round(this.circumference / targetRoadSpacing));
       const roadSpacingS = this.circumference / sRoadCount;
       const roadSpacingZ = targetRoadSpacing;
@@ -1014,6 +1064,7 @@ export class CylinderWorld {
           : zone.type === 'smallCity'
             ? { width: 11 + hash01(this.seed, column, row, 1400 + sample) * 9, depth: 11 + hash01(this.seed, column, row, 1401 + sample) * 11, height: 8 + hash01(this.seed, column, row, 1402 + sample) * 26 }
             : { width: 13 + hash01(this.seed, column, row, 1400 + sample) * 13, depth: 13 + hash01(this.seed, column, row, 1401 + sample) * 13, height: 12 + hash01(this.seed, column, row, 1402 + sample) * 38 };
+        if (this.isUnderWater(s, z, dimensions.width / 2, dimensions.depth / 2)) continue;
         const nearestStreetS = Math.abs(this.shortestDeltaS(s, Math.round(s / roadSpacingS) * roadSpacingS));
         const axialOffset = z + this.axialHalfLength;
         const nearestStreetZ = Math.abs(axialOffset - Math.round(axialOffset / roadSpacingZ) * roadSpacingZ);
@@ -1034,19 +1085,29 @@ export class CylinderWorld {
         placed++;
       }
 
-      if (zone.type === 'largeCity' && hash01(this.seed, column, row, 1450) < 0.008) {
+      if (zone.type === 'largeCity' && hash01(this.seed, column, row, 1450) < 0.006) {
         const localS = sizeS * (0.3 + hash01(this.seed, column, row, 1451) * 0.4);
         const localZ = sizeZ * (0.3 + hash01(this.seed, column, row, 1452) * 0.4);
         const s = s0 + localS;
         const z = z0 + localZ;
-        if (this.riverDistance(s, z) > this.riverWidth / 2 + this.riverBank + 20) {
+        const requestedHeight = 100 + hash01(this.seed, column, row, 1455) * Math.max(
+          0,
+          (Number(this.config.landscape.skyscraperMaxHeightMeters) || 900) - 100,
+        );
+        const height = Math.min(
+          requestedHeight,
+          Math.max(0, this.radius * 0.82 - this.terrainHeight(s, z)),
+        );
+        if (this.riverDistance(s, z) > this.riverWidth / 2 + this.riverBank + 20
+          && height >= 100
+          && !this.isUnderWater(s, z, 22, 22)) {
           buildings.push({
             s,
             z,
             kind: 'skyscraper',
             width: 24 + hash01(this.seed, column, row, 1453) * 18,
             depth: 24 + hash01(this.seed, column, row, 1454) * 18,
-            height: 100 + hash01(this.seed, column, row, 1455) * 400,
+            height,
             yaw: hash01(this.seed, column, row, 1456) < 0.5 ? 0 : Math.PI / 2,
           });
         }
@@ -1056,13 +1117,16 @@ export class CylinderWorld {
       const localZ = sizeZ * (0.25 + hash01(this.seed, column, row, 1502) * 0.5);
       const s = s0 + localS;
       const z = z0 + localZ;
-      if (this.riverDistance(s, z) > this.riverWidth / 2 + this.riverBank + 12) {
+      const width = 12 + hash01(this.seed, column, row, 1503) * 9;
+      const depth = 17 + hash01(this.seed, column, row, 1504) * 13;
+      if (this.riverDistance(s, z) > this.riverWidth / 2 + this.riverBank + 12
+        && !this.isUnderWater(s, z, width / 2, depth / 2)) {
         buildings.push({
           s,
           z,
           kind: 'farm',
-          width: 12 + hash01(this.seed, column, row, 1503) * 9,
-          depth: 17 + hash01(this.seed, column, row, 1504) * 13,
+          width,
+          depth,
           height: 5 + hash01(this.seed, column, row, 1505) * 5,
           yaw: farmlandYaw,
         });
@@ -1072,13 +1136,16 @@ export class CylinderWorld {
       const localZ = sizeZ * (0.22 + hash01(this.seed, column, row, 1552) * 0.56);
       const s = s0 + localS;
       const z = z0 + localZ;
-      if (this.riverDistance(s, z) > this.riverWidth / 2 + this.riverBank + 14) {
+      const width = 10 + hash01(this.seed, column, row, 1553) * 8;
+      const depth = 12 + hash01(this.seed, column, row, 1554) * 9;
+      if (this.riverDistance(s, z) > this.riverWidth / 2 + this.riverBank + 14
+        && !this.isUnderWater(s, z, width / 2, depth / 2)) {
         buildings.push({
           s,
           z,
           kind: 'farm',
-          width: 10 + hash01(this.seed, column, row, 1553) * 8,
-          depth: 12 + hash01(this.seed, column, row, 1554) * 9,
+          width,
+          depth,
           height: 4 + hash01(this.seed, column, row, 1555) * 4,
           yaw: hash01(this.seed, column, row, 1556) < 0.5 ? 0 : Math.PI / 2,
         });
