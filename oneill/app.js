@@ -1,0 +1,1687 @@
+import * as THREE from 'three';
+import { createBuildingArchetypeGeometries } from '../houses/oneill-cylinder/tools/asset-kit.js';
+import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js';
+
+const canvas = document.querySelector('#world');
+const loading = document.querySelector('#loading');
+const loadingStatus = document.querySelector('#loading-status');
+const progress = document.querySelector('#progress');
+const isTouch = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
+const playerEyeHeight = isTouch ? 1.62 : 1.66;
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: !isTouch,
+  powerPreference: isTouch ? 'low-power' : 'high-performance',
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouch ? 1 : 1.4));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = false;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xaec7c8);
+const camera = new THREE.PerspectiveCamera(64, innerWidth / innerHeight, 0.1, 5000);
+const hemisphere = new THREE.HemisphereLight(0xe5f1ec, 0x6e765b, isTouch ? 2.05 : 1.85);
+scene.add(hemisphere);
+const sunlight = new THREE.DirectionalLight(0xffedcf, 2.2);
+sunlight.position.set(-12, 26, -20);
+sunlight.target.position.set(0, 0, 0);
+scene.add(sunlight, sunlight.target);
+
+const terrainMaterial = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.98,
+  metalness: 0,
+});
+const riverMaterial = new THREE.MeshStandardMaterial({
+  color: 0x6ba9ae,
+  roughness: 0.28,
+  metalness: 0.04,
+  side: THREE.DoubleSide,
+});
+const barkMaterial = new THREE.MeshStandardMaterial({ color: 0x665039, roughness: 1 });
+const pineMaterial = new THREE.MeshStandardMaterial({ color: 0x355d43, roughness: 1 });
+const roundTreeMaterial = new THREE.MeshStandardMaterial({ color: 0x64804e, roughness: 1 });
+const buildingMaterials = {
+  village: new THREE.MeshStandardMaterial({ color: 0xc0a882, roughness: 0.96 }),
+  smallCity: new THREE.MeshStandardMaterial({ color: 0x9d9b8f, roughness: 0.9 }),
+  largeCity: new THREE.MeshStandardMaterial({ color: 0x898f90, roughness: 0.86 }),
+  skyscraper: new THREE.MeshStandardMaterial({ color: 0x728d91, metalness: 0.22, roughness: 0.4 }),
+  farm: new THREE.MeshStandardMaterial({ color: 0xa77d4f, roughness: 0.97 }),
+};
+const buildingGeometries = createBuildingArchetypeGeometries(THREE);
+const lakeMaterial = new THREE.MeshStandardMaterial({
+  color: 0x4d9aa2,
+  roughness: 0.19,
+  metalness: 0.08,
+  side: THREE.DoubleSide,
+});
+const localRoadMaterial = new THREE.MeshStandardMaterial({ color: 0x756c59, roughness: 1, side: THREE.DoubleSide });
+const arterialRoadMaterial = new THREE.MeshStandardMaterial({ color: 0x5e625d, roughness: 0.98, side: THREE.DoubleSide });
+const fieldFurrowMaterials = [
+  new THREE.MeshStandardMaterial({ color: 0x677a3e, roughness: 1 }),
+  new THREE.MeshStandardMaterial({ color: 0x978352, roughness: 1 }),
+];
+const backdropMaterial = new THREE.MeshBasicMaterial({
+  vertexColors: true,
+  side: THREE.DoubleSide,
+  fog: false,
+  toneMapped: false,
+});
+const endRingMaterial = new THREE.MeshBasicMaterial({
+  color: 0x566a62,
+  side: THREE.DoubleSide,
+});
+const interiorBackground = new THREE.Color(0xaec7c8);
+const exteriorBackground = new THREE.Color(0x03080d);
+const airlockFrameMaterial = new THREE.MeshStandardMaterial({
+  color: 0x65716f,
+  metalness: 0.76,
+  roughness: 0.48,
+  side: THREE.DoubleSide,
+});
+const airlockAccentMaterial = new THREE.MeshStandardMaterial({
+  color: 0xb36331,
+  emissive: 0x37170b,
+  metalness: 0.54,
+  roughness: 0.62,
+});
+const exteriorHullMaterial = new THREE.MeshStandardMaterial({
+  color: 0x56616a,
+  metalness: 0.78,
+  roughness: 0.57,
+  side: THREE.FrontSide,
+});
+const tramRailMaterial = new THREE.MeshStandardMaterial({
+  color: 0x56615f,
+  metalness: 0.82,
+  roughness: 0.38,
+});
+const tramBodyMaterial = new THREE.MeshStandardMaterial({
+  color: 0x394b49,
+  metalness: 0.72,
+  roughness: 0.43,
+});
+const tramGlassMaterial = new THREE.MeshPhysicalMaterial({
+  color: 0x7da5a2,
+  metalness: 0.24,
+  roughness: 0.16,
+  transparent: true,
+  opacity: 0.28,
+  side: THREE.DoubleSide,
+  depthWrite: false,
+});
+const tramLightMaterial = new THREE.MeshStandardMaterial({
+  color: 0xe4b86a,
+  emissive: 0xb36a20,
+  emissiveIntensity: 1.2,
+});
+const trunkGeometry = new THREE.CylinderGeometry(0.17, 0.27, 3.8, 5);
+const pineCrownGeometry = new THREE.ConeGeometry(2.25, 5.4, 6);
+const roundCrownGeometry = new THREE.DodecahedronGeometry(2.25, 0);
+const unitBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
+const lakeUnitGeometry = new THREE.CircleGeometry(1, 32);
+lakeUnitGeometry.rotateX(-Math.PI / 2);
+
+let world;
+let ready = false;
+let lastFrame = performance.now();
+let lastStatsTime = 0;
+let currentTileKey = '';
+let pendingChunkKeys = [];
+let backdrop;
+let backdropZBucket = Number.NaN;
+let backdropAnchorS = Number.NaN;
+let exteriorHull;
+let exteriorStars;
+let tramRoot;
+let tramPositionZ = 0;
+let tramDestinationZ = 0;
+let tramRiding = false;
+let tramAtStation = true;
+let playerOutside = false;
+let interactQueued = false;
+const outsidePosition = new THREE.Vector3();
+const chunks = new Map();
+const placementCache = new Map();
+const chunkRoots = new THREE.Group();
+chunkRoots.name = 'streamed terrain and scenery';
+scene.add(chunkRoots);
+
+const player = {
+  s: 0, z: 0, yaw: 0, pitch: 0, elevation: 0,
+  verticalVelocity: 0, flying: false, axisSide: false, fallTargetSide: -1, lastFlightDirection: -1,
+};
+const keys = new Set();
+const touchIntent = { forward: 0, strafe: 0, jumpHeld: false, jumpPressed: false, descendHeld: false };
+let touchMovePointer = null;
+let touchLookPointer = null;
+let touchJumpPointer = null;
+let touchDescendPointer = null;
+let lastTouchX = 0;
+let lastTouchY = 0;
+let dragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+let runToggled = false;
+let runKeyHeld = false;
+let pointerLocked = false;
+let jumpQueued = false;
+const lastJumpTap = { keyboard: -Infinity, touch: -Infinity, gamepad: -Infinity };
+let lastForwardTap = -Infinity;
+let lastGamepadForwardTap = -Infinity;
+let gamepadForwardHeld = false;
+let previousGamepadButtons = [];
+let activeGamepadIdentity = '';
+
+const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
+const surfaceOrigin = new THREE.Vector3();
+const viewDirection = new THREE.Vector3();
+const flatForward = new THREE.Vector3();
+const instanceMatrix = new THREE.Matrix4();
+const instanceScale = new THREE.Vector3();
+
+const GAMEPAD_DEADZONE = 0.16;
+const GAMEPAD_LOOK_SPEED = 2.6;
+const DOUBLE_TAP_MS = 280;
+const WALK_SPEED_MPS = 4.6;
+const AIRLOCK_CLEAR_RADIUS = 20;
+const AIRLOCK_TUNNEL_HALF_LENGTH = 46;
+const AIRLOCK_STATION_OFFSET = 20;
+const EXTERIOR_MAX_DISTANCE = 1000;
+const TRAM_SPEED_MPS = 220;
+let runningSpeedMps = 7.2;
+let controlsPanelOpen = false;
+
+function getSeed(config) {
+  const requested = new URLSearchParams(location.search).get('seed');
+  if (requested === null || requested.trim() === '') return config.defaultSeed >>> 0;
+  const numeric = Number(requested);
+  return Number.isFinite(numeric) ? numeric >>> 0 : seedFromString(requested);
+}
+
+function makeBackdrop(centerZ) {
+  if (backdrop) {
+    scene.remove(backdrop);
+    backdrop.geometry.dispose();
+  }
+  const geometry = world.buildOppositeSideGeometry(backdropAnchorS, centerZ);
+  backdrop = new THREE.Mesh(geometry, backdropMaterial);
+  backdrop.name = 'low-detail opposite inner surface';
+  backdrop.frustumCulled = false;
+  scene.add(backdrop);
+}
+
+function addRod(parent, start, end, radius, material) {
+  const direction = end.clone().sub(start);
+  const rod = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius, radius, direction.length(), 8),
+    material,
+  );
+  rod.position.copy(start).add(end).multiplyScalar(0.5);
+  rod.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  parent.add(rod);
+  return rod;
+}
+
+function addAirlock(sign) {
+  const endZ = sign * world.axialHalfLength;
+  const airlock = new THREE.Group();
+  airlock.name = `${sign > 0 ? 'positive' : 'negative'} axial open airlock`;
+  airlock.position.z = endZ;
+
+  const tunnel = new THREE.Mesh(
+    new THREE.CylinderGeometry(AIRLOCK_CLEAR_RADIUS + 5, AIRLOCK_CLEAR_RADIUS + 5,
+      AIRLOCK_TUNNEL_HALF_LENGTH * 2, 32, 1, true),
+    airlockFrameMaterial,
+  );
+  tunnel.rotation.x = Math.PI / 2;
+  tunnel.name = 'open pressure tunnel';
+  airlock.add(tunnel);
+
+  const frameGeometry = new THREE.TorusGeometry(AIRLOCK_CLEAR_RADIUS + 4, 1.7, 8, 48);
+  for (const offset of [-AIRLOCK_TUNNEL_HALF_LENGTH + 4, 0, AIRLOCK_TUNNEL_HALF_LENGTH - 4]) {
+    const frame = new THREE.Mesh(frameGeometry, airlockFrameMaterial);
+    frame.position.z = sign * offset;
+    frame.name = 'open airlock frame';
+    airlock.add(frame);
+  }
+
+  // The doors are visibly parked beside the opening; the axial passage stays clear.
+  const parkedDoorGeometry = new THREE.BoxGeometry(7, AIRLOCK_CLEAR_RADIUS * 2 + 5, 18);
+  for (const side of [-1, 1]) {
+    const door = new THREE.Mesh(parkedDoorGeometry, airlockAccentMaterial);
+    door.position.set(side * (AIRLOCK_CLEAR_RADIUS + 10), 0, sign * 12);
+    door.name = 'open airlock door leaf';
+    airlock.add(door);
+    for (const level of [-1, 1]) {
+      const lamp = new THREE.Mesh(unitBoxGeometry, tramLightMaterial);
+      lamp.scale.set(2.4, 0.45, 0.8);
+      lamp.position.set(side * (AIRLOCK_CLEAR_RADIUS + 6), level * (AIRLOCK_CLEAR_RADIUS + 3), sign * 38);
+      airlock.add(lamp);
+    }
+  }
+
+  const outerDockZ = sign * (AIRLOCK_TUNNEL_HALF_LENGTH + 64);
+  const dockRing = new THREE.Mesh(
+    new THREE.TorusGeometry(AIRLOCK_CLEAR_RADIUS + 16, 1.2, 8, 48),
+    airlockFrameMaterial,
+  );
+  dockRing.position.z = outerDockZ;
+  dockRing.name = 'external airlock docking ring';
+  airlock.add(dockRing);
+  for (let i = 0; i < 8; i++) {
+    const angle = i / 8 * Math.PI * 2;
+    const start = new THREE.Vector3(
+      Math.cos(angle) * (AIRLOCK_CLEAR_RADIUS + 3),
+      Math.sin(angle) * (AIRLOCK_CLEAR_RADIUS + 3),
+      sign * (AIRLOCK_TUNNEL_HALF_LENGTH - 2),
+    );
+    const end = new THREE.Vector3(
+      Math.cos(angle) * (AIRLOCK_CLEAR_RADIUS + 16),
+      Math.sin(angle) * (AIRLOCK_CLEAR_RADIUS + 16),
+      outerDockZ,
+    );
+    addRod(airlock, start, end, 0.65, airlockFrameMaterial);
+  }
+  scene.add(airlock);
+}
+
+function addExteriorStars() {
+  let seed = (world.seed ^ 0x7f4a7c15) >>> 0;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const positions = [];
+  for (const sign of [-1, 1]) {
+    const centerZ = sign * (world.axialHalfLength + 650);
+    for (let i = 0; i < 700; i++) {
+      const angle = random() * Math.PI * 2;
+      const radius = 240 + Math.sqrt(random()) * 1200;
+      positions.push(
+        Math.cos(angle) * radius,
+        Math.sin(angle) * radius,
+        centerZ + (random() - 0.5) * 1500,
+      );
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const material = new THREE.PointsMaterial({
+    color: 0xb9d1df,
+    size: 1.5,
+    sizeAttenuation: false,
+    fog: false,
+    toneMapped: false,
+  });
+  exteriorStars = new THREE.Points(geometry, material);
+  exteriorStars.name = 'seeded exterior stars';
+  scene.add(exteriorStars);
+}
+
+function addCylinderEndcaps() {
+  const exteriorGeometry = new THREE.CylinderGeometry(
+    world.radius + 4,
+    world.radius + 4,
+    world.axialHalfLength * 2,
+    48,
+    1,
+    true,
+  );
+  exteriorHull = new THREE.Mesh(exteriorGeometry, exteriorHullMaterial);
+  exteriorHull.rotation.x = Math.PI / 2;
+  exteriorHull.name = 'simple exterior pressure hull';
+  scene.add(exteriorHull);
+
+  for (const sign of [-1, 1]) {
+    const z = sign * world.axialHalfLength;
+    const bulkhead = new THREE.Mesh(
+      new THREE.RingGeometry(AIRLOCK_CLEAR_RADIUS + 4, world.radius + 6, 96),
+      endRingMaterial,
+    );
+    bulkhead.position.z = z;
+    bulkhead.name = 'annular end bulkhead with open axial port';
+    scene.add(bulkhead);
+
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(world.radius + 2, 2.4, 8, 96),
+      airlockFrameMaterial,
+    );
+    rim.position.z = z;
+    rim.name = 'cylinder end structural rim';
+    scene.add(rim);
+    addAirlock(sign);
+  }
+  addExteriorStars();
+}
+
+function addTramSystem() {
+  const trackEnd = world.axialHalfLength + AIRLOCK_TUNNEL_HALF_LENGTH;
+  const trackLength = trackEnd * 2;
+  const railGeometry = new THREE.BoxGeometry(0.48, 0.42, trackLength);
+  for (const x of [-3.8, 3.8]) {
+    const rail = new THREE.Mesh(railGeometry, tramRailMaterial);
+    rail.position.set(x, -3.6, 0);
+    rail.name = 'center-axis tram rail';
+    scene.add(rail);
+  }
+
+  const sleeperGeometry = new THREE.BoxGeometry(10, 0.42, 1.25);
+  const sleeperCount = Math.ceil(trackLength / 48) + 1;
+  const sleepers = new THREE.InstancedMesh(sleeperGeometry, tramRailMaterial, sleeperCount);
+  const sleeperMatrix = new THREE.Matrix4();
+  for (let i = 0; i < sleeperCount; i++) {
+    const z = -trackEnd + i * 48;
+    sleeperMatrix.makeTranslation(0, -3.88, z);
+    sleepers.setMatrixAt(i, sleeperMatrix);
+  }
+  sleepers.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  sleepers.instanceMatrix.needsUpdate = true;
+  sleepers.computeBoundingSphere();
+  sleepers.name = 'procedural tram sleepers';
+  scene.add(sleepers);
+
+  tramRoot = new THREE.Group();
+  tramRoot.name = 'zero-g center-axis tram';
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(8, 0.48, 24), tramBodyMaterial);
+  floor.position.y = -1.6;
+  tramRoot.add(floor);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(8, 0.38, 24), tramBodyMaterial);
+  roof.position.y = 2.1;
+  tramRoot.add(roof);
+  for (const x of [-3.75, 3.75]) {
+    const window = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.2, 19), tramGlassMaterial);
+    window.position.set(x, 0.25, 0);
+    tramRoot.add(window);
+    for (const z of [-11, 11]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.34, 4, 0.34), tramBodyMaterial);
+      post.position.set(x, 0.2, z);
+      tramRoot.add(post);
+    }
+    for (const y of [-1.55, 1.95]) {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 23), tramBodyMaterial);
+      beam.position.set(x, y, 0);
+      tramRoot.add(beam);
+    }
+  }
+  const frontWindow = new THREE.Mesh(new THREE.BoxGeometry(7, 3.2, 0.16), tramGlassMaterial);
+  frontWindow.position.set(0, 0.22, 11.5);
+  tramRoot.add(frontWindow);
+  const rearWindow = frontWindow.clone();
+  rearWindow.position.z = -11.5;
+  tramRoot.add(rearWindow);
+  for (const z of [-11.3, 11.3]) {
+    const marker = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 0.25), tramLightMaterial);
+    marker.position.set(0, 1.45, z);
+    tramRoot.add(marker);
+  }
+  tramRoot.position.z = tramPositionZ;
+  scene.add(tramRoot);
+}
+
+function makeTransform(pose, yaw, scale, offset = 0) {
+  const position = pose.position.clone();
+  if (offset) position.addScaledVector(pose.up, offset);
+  const quaternion = makeSurfaceQuaternion(pose, yaw);
+  instanceMatrix.compose(position, quaternion, scale);
+  return instanceMatrix;
+}
+
+function addInstances(group, geometry, material, placements, transform) {
+  if (!placements.length) return null;
+  const mesh = new THREE.InstancedMesh(geometry, material, placements.length);
+  mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  placements.forEach((placement, index) => mesh.setMatrixAt(index, transform(placement)));
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.computeBoundingSphere();
+  group.add(mesh);
+  return mesh;
+}
+
+function addTrees(group, placements) {
+  const pineTrees = placements.filter(tree => tree.kind === 'pine');
+  const roundTrees = placements.filter(tree => tree.kind === 'round');
+  const setTrunk = tree => {
+    const pose = world.surfacePose(tree.s, tree.z);
+    const scale = tree.scale;
+    const size = instanceScale.set(scale, scale, scale);
+    return makeTransform(pose, tree.yaw, size, 1.9 * scale);
+  };
+  addInstances(group, trunkGeometry, barkMaterial, placements, setTrunk);
+
+  addInstances(group, pineCrownGeometry, pineMaterial, pineTrees, tree => {
+    const pose = world.surfacePose(tree.s, tree.z);
+    return makeTransform(pose, tree.yaw, instanceScale.setScalar(tree.scale), 4.15 * tree.scale);
+  });
+  addInstances(group, roundCrownGeometry, roundTreeMaterial, roundTrees, tree => {
+    const pose = world.surfacePose(tree.s, tree.z);
+    const scale = tree.scale;
+    return makeTransform(pose, tree.yaw, instanceScale.set(scale, scale * 0.92, scale), 4 * scale);
+  });
+}
+
+function addBuildings(group, placements) {
+  const byKind = new Map();
+  for (const building of placements) {
+    if (!buildingGeometries[building.kind]) continue;
+    if (!byKind.has(building.kind)) byKind.set(building.kind, []);
+    byKind.get(building.kind).push(building);
+  }
+  for (const [kind, buildings] of byKind) {
+    addInstances(group, buildingGeometries[kind], buildingMaterials[kind], buildings, building => {
+      const pose = world.surfacePose(building.s, building.z);
+      const scale = instanceScale.set(building.width, building.height, building.depth);
+      return makeTransform(pose, building.yaw, scale, building.height / 2);
+    });
+  }
+}
+
+function addLakes(group, lakes, column, row) {
+  if (!lakes.length) return;
+  const sizeS = world.circumferentialChunkSize;
+  const z0 = world.chunkStartZ(row);
+  for (const lake of lakes) {
+    const s = column * sizeS + lake.localS;
+    const z = z0 + lake.localZ;
+    const waterHeight = world.terrainHeight(s, z) + lake.waterLevelOffset;
+    const pose = world.pointAtHeight(s, z, waterHeight);
+    const mesh = new THREE.Mesh(lakeUnitGeometry, lakeMaterial);
+    mesh.position.copy(pose.position);
+    mesh.quaternion.copy(makeSurfaceQuaternion(pose, lake.yaw));
+    mesh.scale.set(lake.radiusS, 1, lake.radiusZ);
+    mesh.name = 'seeded basin lake';
+    group.add(mesh);
+  }
+}
+
+function addRoads(group, roads, column, row) {
+  if (!roads.length) return;
+  const sizeS = world.circumferentialChunkSize;
+  const z0 = world.chunkStartZ(row);
+  const buckets = {
+    local: { positions: [], indices: [] },
+    arterial: { positions: [], indices: [] },
+  };
+  for (const road of roads) {
+    const bucket = buckets[road.kind === 'arterial' ? 'arterial' : 'local'];
+    const dx = road.endS - road.startS;
+    const dz = road.endZ - road.startZ;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.2) continue;
+    const normalS = -dz / length * road.width / 2;
+    const normalZ = dx / length * road.width / 2;
+    const aS = column * sizeS + road.startS;
+    const aZ = z0 + road.startZ;
+    const bS = column * sizeS + road.endS;
+    const bZ = z0 + road.endZ;
+    const corners = [
+      [aS + normalS, aZ + normalZ],
+      [aS - normalS, aZ - normalZ],
+      [bS + normalS, bZ + normalZ],
+      [bS - normalS, bZ - normalZ],
+    ];
+    const base = bucket.positions.length / 3;
+    for (const [s, z] of corners) {
+      world.pointAtHeight(s, z, world.terrainHeight(s, z) + 0.28).position.toArray(bucket.positions, bucket.positions.length);
+    }
+    bucket.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+  }
+
+  for (const kind of ['local', 'arterial']) {
+    const values = buckets[kind];
+    if (!values.positions.length) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(values.positions, 3));
+    geometry.setIndex(values.indices);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, kind === 'arterial' ? arterialRoadMaterial : localRoadMaterial);
+    mesh.name = `${kind} roads ${column}:${row}`;
+    mesh.userData.streamGeometry = true;
+    group.add(mesh);
+  }
+}
+
+function addFarmland(group, fields, column, row) {
+  if (!fields.length) return;
+  const sizeS = world.circumferentialChunkSize;
+  const z0 = world.chunkStartZ(row);
+  const placements = [[], []];
+  for (const field of fields) {
+    const rowCount = Math.max(1, Math.round(field.rows));
+    const segmentLength = 24;
+    const segmentCount = Math.ceil(field.depth / segmentLength);
+    const stripeWidth = Math.max(0.8, Math.min(field.furrowSpacing * 0.58, field.width / rowCount * 0.64));
+    for (let r = 0; r < rowCount; r++) {
+      const offset = (r + 0.5) / rowCount * field.width - field.width / 2;
+      const materialIndex = r % 2;
+      for (let segment = 0; segment < segmentCount; segment++) {
+        const currentLength = Math.min(segmentLength, field.depth - segment * segmentLength);
+        const along = -field.depth / 2 + segment * segmentLength + currentLength / 2;
+        const ds = offset * Math.cos(field.yaw) + along * Math.sin(field.yaw);
+        const dz = -offset * Math.sin(field.yaw) + along * Math.cos(field.yaw);
+        const s = column * sizeS + field.localS + ds;
+        const z = z0 + field.localZ + dz;
+        const pose = world.surfacePose(s, z);
+        pose.position.addScaledVector(pose.up, 0.06);
+        const localYaw = field.yaw;
+        placements[materialIndex].push({
+          position: pose.position,
+          quaternion: makeSurfaceQuaternion(pose, localYaw),
+          scale: new THREE.Vector3(stripeWidth, 0.1, currentLength),
+        });
+      }
+    }
+  }
+  placements.forEach((instances, index) => {
+    if (!instances.length) return;
+    const mesh = new THREE.InstancedMesh(unitBoxGeometry, fieldFurrowMaterials[index], instances.length);
+    instances.forEach((instance, i) => {
+      instanceMatrix.compose(instance.position, instance.quaternion, instance.scale);
+      mesh.setMatrixAt(i, instanceMatrix);
+    });
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    mesh.name = 'procedural crop furrows';
+    group.add(mesh);
+  });
+}
+
+function buildChunk(column, row) {
+  const key = `${column}:${row}`;
+  if (chunks.has(key)) return;
+  const group = new THREE.Group();
+  group.name = `land chunk ${key}`;
+
+  const terrainGeometry = world.buildTerrainGeometry(column, row);
+  const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+  terrain.name = `terrain ${key}`;
+  terrain.frustumCulled = true;
+  terrain.userData.streamGeometry = true;
+  group.add(terrain);
+
+  const riverGeometry = world.buildRiverGeometry(column, row);
+  if (riverGeometry) {
+    const river = new THREE.Mesh(riverGeometry, riverMaterial);
+    river.name = `river ${key}`;
+    river.userData.streamGeometry = true;
+    group.add(river);
+  }
+
+  const placements = getPlacements(column, row);
+  addTrees(group, placements.trees);
+  addBuildings(group, placements.buildings);
+  addLakes(group, placements.lakes, column, row);
+  addRoads(group, placements.roads, column, row);
+  addFarmland(group, placements.farmland, column, row);
+  chunkRoots.add(group);
+  chunks.set(key, group);
+}
+
+function getPlacements(column, row) {
+  const key = `${column}:${row}`;
+  if (!placementCache.has(key)) placementCache.set(key, world.generatePlacements(column, row));
+  return placementCache.get(key);
+}
+
+function disposeChunk(key) {
+  const group = chunks.get(key);
+  if (!group) return;
+  chunkRoots.remove(group);
+  group.traverse(object => {
+    if (object.isMesh && object.userData.streamGeometry) object.geometry.dispose();
+  });
+  chunks.delete(key);
+}
+
+function visibleSurfaceS() {
+  if (playerOutside || tramRiding) return player.s;
+  return world.wrapS(player.s + (player.axisSide ? world.circumference / 2 : 0));
+}
+
+function neededChunks() {
+  const { chunkSize, circumferenceChunks, axialHalfLength } = world;
+  const circumferenceChunkSize = world.circumferentialChunkSize;
+  const viewS = visibleSurfaceS();
+  const circumferenceColumn = Math.floor(viewS / circumferenceChunkSize);
+  const axialRows = Math.ceil(world.config.surface.axialLengthMeters / chunkSize);
+  const axialRow = THREE.MathUtils.clamp(
+    Math.floor((player.z + axialHalfLength) / chunkSize),
+    0,
+    axialRows - 1,
+  );
+  const radius = world.config.streaming.visualDistanceMeters
+    + Math.hypot(circumferenceChunkSize, chunkSize) / 2;
+  const reachS = Math.ceil(radius / circumferenceChunkSize) + 1;
+  const reachZ = Math.ceil(radius / chunkSize) + 1;
+  const targets = new Map();
+  for (let dx = -reachS; dx <= reachS; dx++) {
+    const column = mod(circumferenceColumn + dx, circumferenceChunks);
+    const centerS = column * circumferenceChunkSize + circumferenceChunkSize / 2;
+      const distanceS = Math.abs(world.shortestDeltaS(centerS, viewS));
+    for (let dz = -reachZ; dz <= reachZ; dz++) {
+      const row = axialRow + dz;
+      if (row < 0 || row >= axialRows) continue;
+      const centerZ = world.chunkStartZ(row) + chunkSize / 2;
+      const distanceZ = Math.abs(centerZ - player.z);
+      if (Math.hypot(distanceS, distanceZ) > radius) continue;
+      const key = `${column}:${row}`;
+      targets.set(key, { column, row, distance: distanceS * distanceS + distanceZ * distanceZ });
+    }
+  }
+  return targets;
+}
+
+function surfaceTileKey(s, z) {
+  const axialRows = Math.ceil(world.config.surface.axialLengthMeters / world.chunkSize);
+  const column = Math.floor(world.wrapS(s) / world.circumferentialChunkSize);
+  const row = THREE.MathUtils.clamp(
+    Math.floor((z + world.axialHalfLength) / world.chunkSize),
+    0,
+    axialRows - 1,
+  );
+  return `${column}:${row}`;
+}
+
+function reconcileChunks() {
+  const needed = neededChunks();
+  for (const key of placementCache.keys()) {
+    if (!needed.has(key)) placementCache.delete(key);
+  }
+  for (const key of chunks.keys()) {
+    if (!needed.has(key)) disposeChunk(key);
+  }
+  pendingChunkKeys = [...needed.entries()]
+    .filter(([key]) => !chunks.has(key))
+    .sort((a, b) => a[1].distance - b[1].distance)
+    .map(([key]) => key);
+  currentTileKey = surfaceTileKey(visibleSurfaceS(), player.z);
+}
+
+function processChunkQueue() {
+  const limit = isTouch ? 1 : world.config.streaming.chunksBuiltPerFrame;
+  for (let i = 0; i < limit && pendingChunkKeys.length; i++) {
+    const key = pendingChunkKeys.shift();
+    const [column, row] = key.split(':').map(Number);
+    buildChunk(column, row);
+  }
+  const loaded = chunks.size;
+  const total = loaded + pendingChunkKeys.length;
+  progress.style.width = total ? `${(loaded / total) * 100}%` : '100%';
+  loadingStatus.textContent = pendingChunkKeys.length
+    ? `Generating nearby terrain and scenery… ${loaded} / ${total} chunks`
+    : 'The seeded landscape is ready.';
+  if (!pendingChunkKeys.length && loaded) {
+    ready = true;
+    loading.hidden = true;
+  }
+}
+
+function updateBackdrop() {
+  if (playerOutside) {
+    if (backdrop) backdrop.visible = false;
+    return;
+  }
+  if (backdrop) backdrop.visible = true;
+  const bucketSize = 768;
+  const nextZBucket = Math.floor(player.z / bucketSize);
+  const viewS = visibleSurfaceS();
+  const needsNewArc = Number.isNaN(backdropAnchorS)
+    || Math.abs(world.shortestDeltaS(viewS, backdropAnchorS)) > bucketSize / 2;
+  if (nextZBucket === backdropZBucket && !needsNewArc) return;
+  if (needsNewArc) backdropAnchorS = viewS;
+  backdropZBucket = nextZBucket;
+  makeBackdrop(nextZBucket * bucketSize);
+}
+
+function syncCamera() {
+  const exteriorView = playerOutside;
+  const tramView = tramRiding;
+  const pose = !exteriorView && !tramView
+    ? world.surfacePose(player.s, player.z, playerEyeHeight + player.elevation)
+    : null;
+  if (exteriorView) {
+    camera.position.copy(outsidePosition);
+    camera.up.set(0, 1, 0);
+    flatForward.set(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+  } else if (tramView) {
+    camera.position.set(0, 0, player.z);
+    camera.up.set(0, 1, 0);
+    flatForward.set(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+  } else {
+    camera.position.copy(pose.position);
+    camera.up.copy(pose.up);
+    flatForward.copy(pose.axis).multiplyScalar(Math.cos(player.yaw))
+      .addScaledVector(pose.tangent, Math.sin(player.yaw));
+  }
+  const cameraUp = exteriorView || tramView ? camera.up : pose.up;
+  viewDirection.copy(flatForward).multiplyScalar(Math.cos(player.pitch))
+    .addScaledVector(cameraUp, Math.sin(player.pitch));
+  camera.lookAt(surfaceOrigin.copy(camera.position).add(viewDirection));
+
+  const background = exteriorView ? exteriorBackground : interiorBackground;
+  scene.background.copy(background);
+  if (scene.fog) scene.fog.color.copy(background);
+}
+
+function connectedGamepad() {
+  if (!navigator.getGamepads) return null;
+  try {
+    const pads = Array.from(navigator.getGamepads() || []).filter(pad => pad?.connected);
+    return pads.find(pad => `${pad.index}:${pad.id || ''}` === activeGamepadIdentity) || pads[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function syncControllerStatus(gamepad) {
+  const identity = gamepad ? `${gamepad.index}:${gamepad.id || ''}` : '';
+  if (identity === activeGamepadIdentity) return;
+  activeGamepadIdentity = identity;
+  previousGamepadButtons = [];
+  gamepadForwardHeld = false;
+
+  const status = document.querySelector('#controller-status');
+  if (status) {
+    status.hidden = !gamepad;
+    status.textContent = gamepad
+      ? `${(gamepad.id || 'Controller').replace(/\s+/g, ' ').trim()} · left stick move · right stick look · Y tram · R1 / Options controls · L3 hold-run · L1 toggle-run`
+      : '';
+  }
+  const touchControls = document.querySelector('#touch-controls');
+  if (touchControls) touchControls.hidden = !isTouch || Boolean(gamepad);
+  if (gamepad) clearTouchInput();
+}
+
+function remapStick(value) {
+  const magnitude = Math.abs(value);
+  if (magnitude <= GAMEPAD_DEADZONE) return 0;
+  return Math.sign(value) * (magnitude - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE);
+}
+
+function pollGamepad() {
+  const gamepad = connectedGamepad();
+  syncControllerStatus(gamepad);
+  if (!gamepad) {
+    previousGamepadButtons = [];
+    gamepadForwardHeld = false;
+    return {
+      forward: 0, strafe: 0, lookX: 0, lookY: 0,
+      jumpHeld: false, jumpPressed: false, descendHeld: false,
+      runHeld: false, runTogglePressed: false, hudPressed: false, forwardPressed: false,
+      interactPressed: false,
+    };
+  }
+
+  const axes = gamepad.axes || [];
+  const leftX = remapStick(Number(axes[0] || 0));
+  const leftY = remapStick(Number(axes[1] || 0));
+  const rightX = remapStick(Number(axes[2] || 0));
+  const rightY = remapStick(Number(axes[3] || 0));
+  const pressed = index => {
+    const button = gamepad.buttons?.[index];
+    return Boolean(button?.pressed || Number(button?.value || 0) > 0.5);
+  };
+  const previous = previousGamepadButtons;
+  const jumpHeld = pressed(0); // Standard A / Cross.
+  const descendHeld = pressed(1); // Standard B / Circle.
+  const currentButtons = Array.from(
+    { length: Math.max(16, gamepad.buttons?.length || 0) },
+    (_, index) => pressed(index),
+  );
+  previousGamepadButtons = currentButtons;
+
+  const forward = -leftY;
+  const forwardPressed = forward > 0.75 && !gamepadForwardHeld;
+  gamepadForwardHeld = forward > 0.25;
+  return {
+    forward,
+    strafe: leftX,
+    lookX: rightX,
+    lookY: rightY,
+    jumpHeld,
+    jumpPressed: jumpHeld && !previous[0],
+    descendHeld,
+    runHeld: pressed(10), // Left stick click.
+    runTogglePressed: pressed(4) && !previous[4], // Left shoulder.
+    hudPressed: (pressed(5) && !previous[5]) || (pressed(9) && !previous[9]), // Right shoulder or Options.
+    interactPressed: pressed(3) && !previous[3], // Standard Y / Triangle.
+    forwardPressed,
+  };
+}
+
+window.addEventListener('gamepadconnected', event => syncControllerStatus(event.gamepad));
+window.addEventListener('gamepaddisconnected', () => syncControllerStatus(connectedGamepad()));
+
+function setFlying(enabled) {
+  const nextFlying = Boolean(enabled);
+  if (!player.flying && nextFlying) player.lastFlightDirection = -1;
+  if (player.flying && !nextFlying) {
+    const centerDistance = nearWallDistance(player.s, player.z);
+    const offsetFromAxis = player.elevation - centerDistance;
+    player.fallTargetSide = Math.abs(offsetFromAxis) > 1
+      ? Math.sign(offsetFromAxis)
+      : player.lastFlightDirection || -1;
+    player.axisSide = player.fallTargetSide > 0;
+  }
+  player.flying = nextFlying;
+  player.verticalVelocity = 0;
+  jumpQueued = false;
+  updateTouchActions();
+  updateMovementHint();
+}
+
+function handleJumpTap(source, now = performance.now()) {
+  if (now - lastJumpTap[source] <= DOUBLE_TAP_MS) {
+    setFlying(!player.flying);
+    lastJumpTap[source] = -Infinity;
+    return;
+  }
+  lastJumpTap[source] = now;
+  if (!player.flying && player.elevation <= 0.02) jumpQueued = true;
+}
+
+function updateTouchActions() {
+  const jump = document.querySelector('#jump-button');
+  const descend = document.querySelector('#descend-button');
+  const help = document.querySelector('#touch-help');
+  if (jump) {
+    jump.textContent = player.flying ? 'UP' : 'JUMP';
+    jump.setAttribute('aria-label', player.flying
+      ? 'Ascend while flying; double-tap to stop flying'
+      : 'Jump; double-tap to toggle flight');
+  }
+  if (descend) descend.hidden = !player.flying;
+  if (help) {
+    help.textContent = playerOutside
+      ? 'Hold UP / DOWN to drift vertically · E to board at tram station'
+      : player.flying
+        ? 'Hold UP to cross the axis · hold DOWN to return; orientation changes on landing'
+        : 'Drag right to look · double-tap JUMP to fly';
+  }
+}
+
+function updateRunButton() {
+  const button = document.querySelector('#run-button');
+  if (!button) return;
+  button.textContent = runToggled ? 'RUN' : 'WALK';
+  button.classList.toggle('active', runToggled);
+}
+
+function updateMovementHint() {
+  const hint = document.querySelector('#hint');
+  if (!hint) return;
+  const look = pointerLocked ? 'Mouse locked · Esc releases' : 'Mouse / drag or right stick look';
+  if (playerOutside) {
+    hint.textContent = `Exterior zero-G · roam up to 1,000 m from the hull · WASD / left stick drift · Space / A-Cross up · Ctrl / B-Circle down · ${look} · H / R1 / Options controls`;
+  } else if (tramRiding) {
+    hint.textContent = `Axis tram · look around · E / Y / Triangle to exit at the station · ${look}`;
+  } else if (player.flying) {
+    hint.textContent = `Flying · Space / A-Cross cross the axis · Ctrl / B-Circle reverse · orientation changes on landing · E / Y / Triangle tram · ${look} · H / R1 / Options controls`;
+  } else {
+    hint.textContent = `WASD / left stick move · ${look} · Shift / L3 run; double-tap W / L1 to toggle · Space / A-Cross jump; double-tap to fly · E / Y / Triangle tram · H / R1 / Options controls`;
+  }
+}
+
+function distanceToAxis(s = player.s, z = player.z, elevation = player.elevation) {
+  return Math.abs(nearWallDistance(s, z) - elevation);
+}
+
+function nearWallDistance(s, z) {
+  return Math.max(1, world.radius - world.terrainHeight(s, z) - playerEyeHeight);
+}
+
+function updateAxisSide() {
+  const offsetFromAxis = player.elevation - nearWallDistance(player.s, player.z);
+  if (offsetFromAxis > 1) player.axisSide = true;
+  else if (offsetFromAxis < -1) player.axisSide = false;
+}
+
+function farWallDistance(s, z) {
+  const oppositeS = world.wrapS(s + world.circumference / 2);
+  return Math.max(1, world.radius - world.terrainHeight(oppositeS, z) - playerEyeHeight);
+}
+
+function farWallElevation(s = player.s, z = player.z) {
+  return nearWallDistance(s, z) + farWallDistance(s, z);
+}
+
+function distanceFromHull(position) {
+  const radialGap = Math.max(0, Math.hypot(position.x, position.y) - (world.radius + 4));
+  const axialGap = Math.max(0, Math.abs(position.z) - world.axialHalfLength);
+  return Math.hypot(radialGap, axialGap);
+}
+
+function tramDestinationSign() {
+  if (tramPositionZ > world.axialHalfLength * 0.6) return -1;
+  if (tramPositionZ < -world.axialHalfLength * 0.6) return 1;
+  return Math.cos(player.yaw) >= 0 ? 1 : -1;
+}
+
+function updateTramPrompt() {
+  const prompt = document.querySelector('#tram-prompt');
+  const message = document.querySelector('#tram-message');
+  const action = document.querySelector('#tram-interact');
+  if (!prompt || !message || !action) return;
+  prompt.hidden = true;
+  action.hidden = false;
+  action.disabled = false;
+  if (controlsPanelOpen) return;
+
+  if (tramRiding) {
+    prompt.hidden = false;
+    if (tramAtStation) {
+      message.textContent = 'ZERO-G TRAM · stopped at the open end-cap airlock';
+      action.textContent = 'E / Y · Exit tram';
+      action.disabled = false;
+    } else {
+      const side = Math.sign(tramDestinationZ) > 0 ? '+Z' : '−Z';
+      message.textContent = `ZERO-G TRAM · en route to the ${side} end-cap airlock`;
+      action.textContent = 'In transit';
+      action.disabled = true;
+    }
+    return;
+  }
+
+  if (playerOutside) return;
+  const axisDistance = distanceToAxis();
+  if (tramAtStation && axisDistance < AIRLOCK_CLEAR_RADIUS
+    && Math.abs(player.z - tramPositionZ) < 18) {
+    const side = tramDestinationSign() > 0 ? '+Z' : '−Z';
+    prompt.hidden = false;
+    message.textContent = `ZERO-G TRAM · board for the ${side} end-cap airlock`;
+    action.textContent = 'E / Y · Board tram';
+    action.disabled = false;
+    return;
+  }
+
+  const distancePastCap = Math.abs(player.z) - world.axialHalfLength;
+  if (axisDistance < AIRLOCK_CLEAR_RADIUS && distancePastCap > -AIRLOCK_TUNNEL_HALF_LENGTH - 2
+    && distancePastCap < AIRLOCK_TUNNEL_HALF_LENGTH + 2) {
+    prompt.hidden = false;
+    message.textContent = 'OPEN AIRLOCK · follow the center passage to reach the exterior';
+    action.hidden = true;
+  }
+}
+
+function disembarkTram() {
+  tramRiding = false;
+  tramAtStation = true;
+  player.s = world.circumference * 0.75;
+  player.z = tramPositionZ;
+  player.elevation = world.radius - world.terrainHeight(player.s, player.z) - playerEyeHeight;
+  player.flying = true;
+  player.verticalVelocity = 0;
+  player.fallTargetSide = -1;
+  player.lastFlightDirection = -1;
+  player.axisSide = false;
+  updateTouchActions();
+  updateMovementHint();
+}
+
+function handleTramInteraction() {
+  if (tramRiding) {
+    if (tramAtStation) disembarkTram();
+    return;
+  }
+  if (playerOutside || !tramAtStation || distanceToAxis() >= AIRLOCK_CLEAR_RADIUS
+    || Math.abs(player.z - tramPositionZ) >= 18) return;
+
+  const sign = tramDestinationSign();
+  tramDestinationZ = sign * (world.axialHalfLength + AIRLOCK_STATION_OFFSET);
+  tramRiding = true;
+  tramAtStation = false;
+  player.s = world.circumference * 0.75;
+  player.z = tramPositionZ;
+  player.elevation = world.radius - world.terrainHeight(player.s, player.z) - playerEyeHeight;
+  player.flying = false;
+  player.verticalVelocity = 0;
+  player.fallTargetSide = -1;
+  player.axisSide = false;
+  updateTouchActions();
+  updateMovementHint();
+}
+
+function advanceTram(dt) {
+  if (!tramRiding || tramAtStation) return;
+  const delta = tramDestinationZ - tramPositionZ;
+  const distance = TRAM_SPEED_MPS * dt;
+  if (Math.abs(delta) <= distance) {
+    tramPositionZ = tramDestinationZ;
+    tramAtStation = true;
+    player.yaw = Math.sign(tramDestinationZ) > 0 ? 0 : Math.PI;
+  } else {
+    tramPositionZ += Math.sign(delta) * distance;
+  }
+  tramRoot.position.z = tramPositionZ;
+  player.z = tramPositionZ;
+  const tile = surfaceTileKey(visibleSurfaceS(), player.z);
+  if (tile !== currentTileKey) reconcileChunks();
+  updateBackdrop();
+}
+
+const controlsPanel = document.querySelector('#controls-panel');
+const controlsBackdrop = document.querySelector('#controls-backdrop');
+const controlsToggle = document.querySelector('#controls-toggle');
+const controlsClose = document.querySelector('#controls-close');
+const runSpeedSlider = document.querySelector('#run-speed');
+const runSpeedValue = document.querySelector('#run-speed-value');
+const viewRangeSlider = document.querySelector('#view-range');
+const viewRangeValue = document.querySelector('#view-range-value');
+const VIEW_RANGE_FOG_NEAR_RATIO = 0.57;
+const VIEW_RANGE_FOG_FAR_RATIO = 1.1;
+let viewRangeRefreshTimer = 0;
+
+function updateRunSpeed() {
+  runningSpeedMps = Number(runSpeedSlider.value);
+  runSpeedValue.value = `${runningSpeedMps.toFixed(1)} m/s`;
+  runSpeedValue.textContent = runSpeedValue.value;
+}
+
+function updateViewRange() {
+  const viewRangeMeters = Number(viewRangeSlider.value);
+  viewRangeValue.value = `${viewRangeMeters.toLocaleString()} m`;
+  viewRangeValue.textContent = viewRangeValue.value;
+  if (!world) return;
+
+  world.config.streaming.visualDistanceMeters = viewRangeMeters;
+  if (scene.fog) {
+    scene.fog.near = Math.round(viewRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
+    scene.fog.far = Math.round(viewRangeMeters * VIEW_RANGE_FOG_FAR_RATIO);
+  }
+  camera.far = Math.max(world.radius * 2 + 420, viewRangeMeters * 1.2);
+  camera.updateProjectionMatrix();
+  const chunksLabel = document.querySelector('#chunks');
+  if (chunksLabel) {
+    chunksLabel.textContent = `${chunks.size} chunks loaded · ${viewRangeMeters.toLocaleString()} m view range`;
+  }
+}
+
+function scheduleViewRangeRefresh(immediate = false) {
+  clearTimeout(viewRangeRefreshTimer);
+  viewRangeRefreshTimer = 0;
+  if (immediate) {
+    if (world) reconcileChunks();
+    return;
+  }
+  viewRangeRefreshTimer = window.setTimeout(() => {
+    viewRangeRefreshTimer = 0;
+    if (world) reconcileChunks();
+  }, 180);
+}
+
+function setControlsPanelOpen(open) {
+  controlsPanelOpen = Boolean(open);
+  controlsPanel.hidden = !controlsPanelOpen;
+  controlsBackdrop.hidden = !controlsPanelOpen;
+  controlsToggle.setAttribute('aria-expanded', String(controlsPanelOpen));
+  if (controlsPanelOpen) {
+    clearTransientInput();
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    controlsClose.focus();
+  } else {
+    controlsToggle.focus();
+  }
+}
+
+function toggleControlsPanel() {
+  setControlsPanelOpen(!controlsPanelOpen);
+}
+
+controlsToggle.addEventListener('click', toggleControlsPanel);
+controlsClose.addEventListener('click', () => setControlsPanelOpen(false));
+controlsBackdrop.addEventListener('click', () => setControlsPanelOpen(false));
+document.querySelector('#tram-interact').addEventListener('click', () => { interactQueued = true; });
+runSpeedSlider.addEventListener('input', updateRunSpeed);
+updateRunSpeed();
+viewRangeSlider.addEventListener('input', () => {
+  updateViewRange();
+  scheduleViewRangeRefresh();
+});
+viewRangeSlider.addEventListener('change', () => {
+  updateViewRange();
+  scheduleViewRangeRefresh(true);
+});
+updateViewRange();
+
+function advanceVerticalMotion(gamepad, dt) {
+  if (jumpQueued) {
+    if (!player.flying && player.elevation <= 0.02) player.verticalVelocity = 5.2;
+    jumpQueued = false;
+  }
+
+  if (player.flying) {
+    const ascend = keys.has('Space') || gamepad.jumpHeld || touchIntent.jumpHeld;
+    const descend = keys.has('ControlLeft') || keys.has('ControlRight')
+      || gamepad.descendHeld || touchIntent.descendHeld;
+    const direction = Number(ascend) - Number(descend);
+    if (direction) player.lastFlightDirection = Math.sign(direction);
+    player.verticalVelocity = direction * runningSpeedMps;
+    player.elevation = THREE.MathUtils.clamp(
+      player.elevation + player.verticalVelocity * dt,
+      0,
+      farWallElevation(),
+    );
+    updateAxisSide();
+    return;
+  }
+
+  const nearDistance = nearWallDistance(player.s, player.z);
+  const farElevation = farWallElevation();
+  const side = player.fallTargetSide || -1;
+  const distanceFromAxis = Math.abs(player.elevation - nearDistance);
+  const gravity = Math.max(0.35, 9.81 * THREE.MathUtils.clamp(distanceFromAxis / world.radius, 0, 1));
+  player.verticalVelocity += side * gravity * dt;
+  player.elevation += player.verticalVelocity * dt;
+  if (side < 0 && player.elevation <= 0) {
+    player.elevation = 0;
+    player.verticalVelocity = 0;
+    player.axisSide = false;
+    player.fallTargetSide = -1;
+  } else if (side > 0 && player.elevation >= farElevation) {
+    player.s = world.wrapS(player.s + world.circumference / 2);
+    player.yaw = -player.yaw;
+    player.pitch = -player.pitch;
+    player.elevation = 0;
+    player.verticalVelocity = 0;
+    player.axisSide = false;
+    player.fallTargetSide = -1;
+  } else {
+    updateAxisSide();
+  }
+}
+
+function readIntent(gamepad) {
+  const forward = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+    - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0)
+    + touchIntent.forward + gamepad.forward;
+  const strafe = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
+    - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0)
+    + touchIntent.strafe + gamepad.strafe;
+  const length = Math.hypot(forward, strafe);
+  return length > 1 ? { forward: forward / length, strafe: strafe / length } : { forward, strafe };
+}
+
+function step(dt) {
+  const gamepad = pollGamepad();
+  if (gamepad.hudPressed) toggleControlsPanel();
+  if (controlsPanelOpen) {
+    updateRunButton();
+    return;
+  }
+  const interact = interactQueued || gamepad.interactPressed;
+  interactQueued = false;
+  const now = performance.now();
+  if (!playerOutside && !tramRiding && gamepad.jumpPressed) handleJumpTap('gamepad', now);
+  if (!playerOutside && !tramRiding && touchIntent.jumpPressed) handleJumpTap('touch', now);
+  touchIntent.jumpPressed = false;
+  if (gamepad.runTogglePressed) runToggled = !runToggled;
+  if (gamepad.forwardPressed) {
+    if (now - lastGamepadForwardTap <= DOUBLE_TAP_MS) {
+      runToggled = !runToggled;
+      lastGamepadForwardTap = -Infinity;
+    } else {
+      lastGamepadForwardTap = now;
+    }
+  }
+  player.yaw -= gamepad.lookX * GAMEPAD_LOOK_SPEED * dt;
+  player.pitch = THREE.MathUtils.clamp(
+    player.pitch - gamepad.lookY * GAMEPAD_LOOK_SPEED * dt,
+    -1.43,
+    1.43,
+  );
+  if (interact) handleTramInteraction();
+
+  if (tramRiding) {
+    advanceTram(dt);
+    updateRunButton();
+    updateTramPrompt();
+    syncCamera();
+    return;
+  }
+
+  if (playerOutside) {
+    advanceExteriorMovement(gamepad, dt);
+  } else {
+    advanceVerticalMotion(gamepad, dt);
+    advanceInteriorMovement(gamepad, dt);
+    updateAxisSide();
+  }
+  updateRunButton();
+  if (!playerOutside) {
+    const tile = surfaceTileKey(visibleSurfaceS(), player.z);
+    if (tile !== currentTileKey) reconcileChunks();
+    updateBackdrop();
+  }
+  syncCamera();
+  updateTramPrompt();
+}
+
+function advanceInteriorMovement(gamepad, dt) {
+  const intent = readIntent(gamepad);
+  if (!intent.forward && !intent.strafe) return;
+  const running = runToggled || runKeyHeld || gamepad.runHeld;
+  const speed = player.flying || running ? runningSpeedMps : WALK_SPEED_MPS;
+  const surfaceSide = player.axisSide ? -1 : 1;
+  const ds = (intent.forward * Math.sin(player.yaw) - intent.strafe * Math.cos(player.yaw))
+    * surfaceSide * speed * dt;
+  const dz = (intent.forward * Math.cos(player.yaw) + intent.strafe * Math.sin(player.yaw)) * speed * dt;
+  const movementSteps = Math.max(1, Math.ceil(Math.hypot(ds, dz) / 1));
+  const stepS = ds / movementSteps;
+  const stepZ = dz / movementSteps;
+  for (let i = 0; i < movementSteps; i++) {
+    const farClearance = player.axisSide
+      ? farWallElevation(player.s, player.z) - player.elevation
+      : null;
+    const nextS = world.wrapS(player.s + stepS);
+    const nearPortal = distanceToAxis(nextS, player.z, player.elevation) < AIRLOCK_CLEAR_RADIUS;
+    const axialLimit = nearPortal
+      ? world.axialHalfLength + AIRLOCK_TUNNEL_HALF_LENGTH + 4
+      : world.axialHalfLength - 2;
+    const nextZ = THREE.MathUtils.clamp(player.z + stepZ, -axialLimit, axialLimit);
+    const portalClear = distanceToAxis(nextS, nextZ, player.elevation) < AIRLOCK_CLEAR_RADIUS;
+    if (player.elevation > 1.2 || !isBlocked(nextS, nextZ)) {
+      player.s = nextS;
+      player.z = nextZ;
+    } else {
+      let slid = false;
+      if (!isBlocked(nextS, player.z)) {
+        player.s = nextS;
+        slid = true;
+      }
+      if (!isBlocked(player.s, nextZ)) {
+        player.z = nextZ;
+        slid = true;
+      }
+      if (!slid) break;
+    }
+
+    if (farClearance !== null) {
+      player.elevation = THREE.MathUtils.clamp(
+        farWallElevation(player.s, player.z) - farClearance,
+        0,
+        farWallElevation(player.s, player.z),
+      );
+    }
+
+    if (portalClear && Math.abs(player.z) >= world.axialHalfLength + AIRLOCK_TUNNEL_HALF_LENGTH) {
+      enterExterior(Math.sign(player.z));
+      break;
+    }
+  }
+}
+
+function entersCylinderHull(position) {
+  return Math.abs(position.z) < world.axialHalfLength
+    && Math.hypot(position.x, position.y) < world.radius + 8;
+}
+
+function enterExterior(sign) {
+  playerOutside = true;
+  player.s = world.circumference * 0.75;
+  player.flying = true;
+  player.verticalVelocity = 0;
+  player.fallTargetSide = -1;
+  player.lastFlightDirection = -1;
+  player.axisSide = false;
+  outsidePosition.set(0, 0, sign * (world.axialHalfLength + AIRLOCK_TUNNEL_HALF_LENGTH));
+  player.z = outsidePosition.z;
+  player.elevation = world.radius - world.terrainHeight(player.s, player.z) - playerEyeHeight;
+  updateTouchActions();
+  updateMovementHint();
+}
+
+function enterInterior(position) {
+  playerOutside = false;
+  player.s = world.circumference * 0.75;
+  player.z = position.z;
+  player.elevation = world.radius - world.terrainHeight(player.s, player.z) - playerEyeHeight;
+  player.flying = true;
+  player.verticalVelocity = 0;
+  player.fallTargetSide = -1;
+  player.lastFlightDirection = -1;
+  player.axisSide = false;
+  updateTouchActions();
+  updateMovementHint();
+}
+
+function advanceExteriorMovement(gamepad, dt) {
+  const intent = readIntent(gamepad);
+  const ascend = keys.has('Space') || gamepad.jumpHeld || touchIntent.jumpHeld;
+  const descend = keys.has('ControlLeft') || keys.has('ControlRight')
+    || gamepad.descendHeld || touchIntent.descendHeld;
+  const vertical = Number(ascend) - Number(descend);
+  if (!intent.forward && !intent.strafe && !vertical) return;
+
+  let moveX = (intent.forward * Math.sin(player.yaw) + intent.strafe * Math.cos(player.yaw)) * runningSpeedMps;
+  let moveY = vertical * runningSpeedMps;
+  let moveZ = (intent.forward * Math.cos(player.yaw) - intent.strafe * Math.sin(player.yaw)) * runningSpeedMps;
+  const magnitude = Math.hypot(moveX, moveY, moveZ);
+  if (magnitude > runningSpeedMps) {
+    moveX *= runningSpeedMps / magnitude;
+    moveY *= runningSpeedMps / magnitude;
+    moveZ *= runningSpeedMps / magnitude;
+  }
+  const distance = Math.hypot(moveX, moveY, moveZ) * dt;
+  const movementSteps = Math.max(1, Math.ceil(distance / 1));
+  const delta = new THREE.Vector3(moveX, moveY, moveZ).multiplyScalar(dt / movementSteps);
+  const candidate = new THREE.Vector3();
+  for (let i = 0; i < movementSteps; i++) {
+    candidate.copy(outsidePosition).add(delta);
+    if (entersCylinderHull(candidate)) break;
+    if (distanceFromHull(candidate) > EXTERIOR_MAX_DISTANCE) break;
+    outsidePosition.copy(candidate);
+    const enteringPort = delta.z * outsidePosition.z < 0
+      && Math.abs(outsidePosition.z) < world.axialHalfLength + AIRLOCK_TUNNEL_HALF_LENGTH;
+    const nearPort = enteringPort
+      && Math.hypot(outsidePosition.x, outsidePosition.y) < AIRLOCK_CLEAR_RADIUS;
+    if (nearPort) {
+      enterInterior(outsidePosition);
+      break;
+    }
+  }
+}
+
+function isBlocked(s, z) {
+  const chunkSizeS = world.circumferentialChunkSize;
+  const chunkSizeZ = world.chunkSize;
+  const columnCount = world.circumferenceChunks;
+  const column = Math.floor(world.wrapS(s) / chunkSizeS);
+  const axialRows = Math.ceil(world.config.surface.axialLengthMeters / chunkSizeZ);
+  const row = Math.floor((z + world.axialHalfLength) / chunkSizeZ);
+  for (let dx = -1; dx <= 1; dx++) {
+    const nearbyColumn = mod(column + dx, columnCount);
+    for (let dz = -1; dz <= 1; dz++) {
+      const nearbyRow = row + dz;
+      if (nearbyRow < 0 || nearbyRow >= axialRows) continue;
+      const { trees, buildings } = getPlacements(nearbyColumn, nearbyRow);
+      for (const tree of trees) {
+        const ds = world.shortestDeltaS(s, tree.s);
+        const dzFromTree = z - tree.z;
+        if (ds * ds + dzFromTree * dzFromTree < 0.72 * 0.72) return true;
+      }
+      for (const building of buildings) {
+        const ds = world.shortestDeltaS(s, building.s);
+        const dzFromBuilding = z - building.z;
+        const localS = ds * Math.cos(building.yaw) - dzFromBuilding * Math.sin(building.yaw);
+        const localZ = ds * Math.sin(building.yaw) + dzFromBuilding * Math.cos(building.yaw);
+        if (Math.abs(localS) < building.width / 2 + 0.65
+          && Math.abs(localZ) < building.depth / 2 + 0.65) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function updateHud(now) {
+  if (now - lastStatsTime < 180) return;
+  lastStatsTime = now;
+  document.querySelector('#chunks').textContent = `${chunks.size} chunks loaded · ${world.config.streaming.visualDistanceMeters.toLocaleString()} m view range`;
+  document.querySelector('#location').textContent = playerOutside
+    ? `Exterior · ${Math.round(distanceFromHull(outsidePosition))} m from hull · X ${Math.round(outsidePosition.x)}, Y ${Math.round(outsidePosition.y)}, Z ${Math.round(outsidePosition.z)} m`
+    : tramRiding
+      ? `Tram · Axis ${Math.round(player.z)} m · ${TRAM_SPEED_MPS} m/s`
+      : `Arc ${Math.round(visibleSurfaceS())} m · Axis ${Math.round(player.z)} m · Height ${Math.round(player.elevation)} m`;
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, Math.max(0, (now - lastFrame) / 1000));
+  lastFrame = now;
+  if (!ready || pendingChunkKeys.length) processChunkQueue();
+  if (ready) step(dt);
+  updateHud(now);
+  renderer.render(scene, camera);
+}
+
+function applyLook(dx, dy, sensitivity = 0.0023) {
+  player.yaw -= dx * sensitivity;
+  player.pitch = THREE.MathUtils.clamp(player.pitch - dy * sensitivity, -1.43, 1.43);
+  syncCamera();
+}
+
+document.addEventListener('keydown', event => {
+  if (event.code === 'Escape') {
+    if (controlsPanelOpen) setControlsPanelOpen(false);
+    else if (document.pointerLockElement === canvas) document.exitPointerLock();
+    return;
+  }
+  if (event.code === 'KeyF' && !event.repeat) {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else {
+      const request = document.documentElement.requestFullscreen?.();
+      request?.catch?.(() => {});
+    }
+    return;
+  }
+  if (event.code === 'KeyH' && !event.repeat) {
+    toggleControlsPanel();
+    return;
+  }
+  if (controlsPanelOpen) return;
+  if (!ready) return;
+  if (event.code === 'KeyE' && !event.repeat) {
+    event.preventDefault();
+    interactQueued = true;
+    return;
+  }
+
+  const handledKeys = [
+    'KeyW', 'KeyA', 'KeyS', 'KeyD',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'Space', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight',
+  ];
+  if (handledKeys.includes(event.code)) event.preventDefault();
+  if (event.code === 'KeyW' || event.code === 'ArrowUp') {
+    if (!event.repeat) {
+      const now = performance.now();
+      if (now - lastForwardTap <= DOUBLE_TAP_MS) {
+        runToggled = !runToggled;
+        lastForwardTap = -Infinity;
+      } else {
+        lastForwardTap = now;
+      }
+    }
+  }
+  if (event.code === 'Space' && !event.repeat && !playerOutside && !tramRiding) handleJumpTap('keyboard');
+  keys.add(event.code);
+  if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') runKeyHeld = true;
+});
+
+document.addEventListener('keyup', event => {
+  keys.delete(event.code);
+  if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') runKeyHeld = false;
+});
+
+function clearTouchInput() {
+  touchIntent.forward = 0;
+  touchIntent.strafe = 0;
+  touchIntent.jumpHeld = false;
+  touchIntent.jumpPressed = false;
+  touchIntent.descendHeld = false;
+  touchMovePointer = null;
+  touchLookPointer = null;
+  touchJumpPointer = null;
+  touchDescendPointer = null;
+  if (moveNub) moveNub.style.transform = 'translate(-50%, -50%)';
+}
+
+function clearTransientInput() {
+  keys.clear();
+  runKeyHeld = false;
+  dragging = false;
+  jumpQueued = false;
+  interactQueued = false;
+  lastForwardTap = -Infinity;
+  lastJumpTap.keyboard = -Infinity;
+  lastJumpTap.touch = -Infinity;
+  clearTouchInput();
+}
+
+window.addEventListener('blur', clearTransientInput);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearTransientInput();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === canvas;
+  updateMovementHint();
+});
+
+canvas.addEventListener('click', () => {
+  if (!isTouch && ready && !pointerLocked) {
+    const request = canvas.requestPointerLock?.();
+    request?.catch?.(() => {});
+  }
+});
+
+canvas.addEventListener('mousedown', event => {
+  if (isTouch || pointerLocked) return;
+  dragging = true;
+  lastMouseX = event.clientX;
+  lastMouseY = event.clientY;
+});
+
+document.addEventListener('mousemove', event => {
+  if (pointerLocked) {
+    applyLook(event.movementX, event.movementY);
+  } else if (dragging && !isTouch) {
+    applyLook(event.clientX - lastMouseX, event.clientY - lastMouseY);
+    lastMouseX = event.clientX;
+    lastMouseY = event.clientY;
+  }
+});
+document.addEventListener('mouseup', () => { dragging = false; });
+
+const movePad = document.querySelector('#move-pad');
+const moveNub = document.querySelector('#move-nub');
+
+function updateTouchMove(event) {
+  if (event.pointerId !== touchMovePointer) return;
+  const bounds = movePad.getBoundingClientRect();
+  const radius = bounds.width * 0.31;
+  let dx = event.clientX - (bounds.left + bounds.width / 2);
+  let dy = event.clientY - (bounds.top + bounds.height / 2);
+  const distance = Math.hypot(dx, dy);
+  if (distance > radius) {
+    dx *= radius / distance;
+    dy *= radius / distance;
+  }
+  const remap = value => Math.abs(value) < 0.12 ? 0 : Math.sign(value) * (Math.abs(value) - 0.12) / 0.88;
+  touchIntent.strafe = remap(dx / radius);
+  touchIntent.forward = remap(-dy / radius);
+  moveNub.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+
+movePad.addEventListener('pointerdown', event => {
+  if (!isTouch) return;
+  event.preventDefault();
+  touchMovePointer = event.pointerId;
+  movePad.setPointerCapture(event.pointerId);
+  updateTouchMove(event);
+});
+movePad.addEventListener('pointermove', updateTouchMove);
+
+canvas.addEventListener('pointerdown', event => {
+  if (!isTouch || event.clientX < innerWidth * 0.4) return;
+  event.preventDefault();
+  touchLookPointer = event.pointerId;
+  lastTouchX = event.clientX;
+  lastTouchY = event.clientY;
+  canvas.setPointerCapture(event.pointerId);
+});
+
+canvas.addEventListener('pointermove', event => {
+  if (event.pointerId !== touchLookPointer) return;
+  applyLook(event.clientX - lastTouchX, event.clientY - lastTouchY, 0.0031);
+  lastTouchX = event.clientX;
+  lastTouchY = event.clientY;
+});
+
+function releasePointer(event) {
+  if (event.pointerId === touchMovePointer) {
+    touchMovePointer = null;
+    touchIntent.forward = 0;
+    touchIntent.strafe = 0;
+    moveNub.style.transform = 'translate(-50%, -50%)';
+  }
+  if (event.pointerId === touchLookPointer) touchLookPointer = null;
+  if (event.pointerId === touchJumpPointer) {
+    touchJumpPointer = null;
+    touchIntent.jumpHeld = false;
+  }
+  if (event.pointerId === touchDescendPointer) {
+    touchDescendPointer = null;
+    touchIntent.descendHeld = false;
+  }
+}
+document.addEventListener('pointerup', releasePointer);
+document.addEventListener('pointercancel', releasePointer);
+
+const jumpButton = document.querySelector('#jump-button');
+const descendButton = document.querySelector('#descend-button');
+
+jumpButton.addEventListener('pointerdown', event => {
+  if (!isTouch || activeGamepadIdentity) return;
+  event.preventDefault();
+  touchJumpPointer = event.pointerId;
+  jumpButton.setPointerCapture(event.pointerId);
+  touchIntent.jumpHeld = true;
+  touchIntent.jumpPressed = true;
+});
+
+descendButton.addEventListener('pointerdown', event => {
+  if (!isTouch || activeGamepadIdentity || !player.flying) return;
+  event.preventDefault();
+  touchDescendPointer = event.pointerId;
+  descendButton.setPointerCapture(event.pointerId);
+  touchIntent.descendHeld = true;
+});
+
+document.querySelector('#run-button').addEventListener('click', () => {
+  runToggled = !runToggled;
+  updateRunButton();
+});
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+async function start() {
+  try {
+    const response = await fetch('../houses/oneill-cylinder/data/world-config.json');
+    if (!response.ok) throw new Error(`World settings could not be loaded (${response.status}).`);
+    const config = await response.json();
+    const seed = getSeed(config);
+    world = new CylinderWorld(config, seed);
+    document.querySelector('#seed').textContent = `Seed ${seed}`;
+    document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m diameter`;
+    scene.fog = new THREE.Fog(interiorBackground, config.streaming.fogNearMeters, config.streaming.fogFarMeters);
+    updateViewRange();
+    document.querySelector('#touch-controls').hidden = !isTouch;
+    syncControllerStatus(connectedGamepad());
+    updateTouchActions();
+    updateRunButton();
+    updateMovementHint();
+    addCylinderEndcaps();
+    addTramSystem();
+    backdropAnchorS = 0;
+    backdropZBucket = 0;
+    makeBackdrop(0);
+    syncCamera();
+    reconcileChunks();
+    requestAnimationFrame(frame);
+  } catch (error) {
+    console.error('[O\'Neill Cylinder] Could not start:', error);
+    loadingStatus.textContent = error.message || 'The environment could not be loaded.';
+    document.querySelector('.loading-card h2').textContent = 'Could not build the landscape';
+  }
+}
+
+start();

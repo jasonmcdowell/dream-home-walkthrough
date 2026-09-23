@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#c8d8cb">
+  <title>Green Reach · O'Neill Cylinder</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js"}}</script>
+</head>
+<body>
+  <canvas id="world" aria-label="First-person procedural O'Neill cylinder environment"></canvas>
+  <header id="world-hud" aria-live="polite">
+    <p class="eyebrow">DREAM HOME · ENVIRONMENT STUDY</p>
+    <h1>Green Reach</h1>
+    <div class="world-stats">
+      <span id="seed">Seed 1847</span>
+      <span id="diameter">2,000 m diameter</span>
+      <span id="chunks">Preparing landscape…</span>
+      <span id="location">Surface 0 · 0</span>
+    </div>
+  </header>
+  <button id="controls-toggle" type="button" aria-controls="controls-panel" aria-expanded="false">CONTROLS</button>
+  <div id="hint">WASD / arrows or left stick move · Mouse / drag or right stick look · Shift / L3 run · Space / A jump; double-tap to fly · H / R1 / Options controls</div>
+  <div id="controller-status" hidden aria-live="polite"></div>
+  <div id="tram-prompt" hidden aria-live="polite">
+    <span id="tram-message"></span>
+    <button id="tram-interact" type="button">E / Y · Board tram</button>
+  </div>
+  <div id="crosshair" aria-hidden="true"></div>
+  <div id="touch-controls" hidden aria-label="Touch walkthrough controls">
+    <div id="move-pad" aria-label="Movement pad"><span>MOVE</span><i id="move-nub"></i></div>
+    <div id="touch-actions" aria-label="Movement actions">
+      <button id="run-button" type="button">WALK</button>
+      <button id="jump-button" type="button" aria-label="Jump; double-tap to toggle flight">JUMP</button>
+      <button id="descend-button" type="button" aria-label="Descend while flying" hidden>DOWN</button>
+    </div>
+    <p id="touch-help">Drag right to look · double-tap JUMP to fly</p>
+  </div>
+  <div id="controls-backdrop" hidden></div>
+  <aside id="controls-panel" hidden role="dialog" aria-modal="true" aria-labelledby="controls-title">
+    <div class="controls-heading">
+      <div>
+        <p class="eyebrow">GREEN REACH · WALKTHROUGH</p>
+        <h2 id="controls-title">Movement controls</h2>
+      </div>
+      <button id="controls-close" type="button" aria-label="Close controls">×</button>
+    </div>
+    <label class="run-speed-label" for="run-speed">
+      <span>Running / flying speed</span>
+      <output id="run-speed-value" for="run-speed">7.2 m/s</output>
+    </label>
+    <input id="run-speed" type="range" min="5" max="100" step="0.1" value="7.2">
+    <div class="speed-range-labels"><span>5.0 m/s</span><span>100.0 m/s</span></div>
+    <label class="run-speed-label view-range-label" for="view-range">
+      <span>View range</span>
+      <output id="view-range-value" for="view-range">500 m</output>
+    </label>
+    <input id="view-range" type="range" min="500" max="2200" step="25" value="500">
+    <div class="speed-range-labels"><span>500 m</span><span>2,200 m</span></div>
+    <dl class="movement-guide">
+      <div><dt>H / R1 / Options</dt><dd>Show or hide this panel</dd></div>
+      <div><dt>Shift / L3</dt><dd>Hold to run</dd></div>
+      <div><dt>Double-tap W / L1</dt><dd>Toggle running</dd></div>
+      <div><dt>Space / A / Cross</dt><dd>Jump · double-tap to fly</dd></div>
+      <div><dt>Ctrl / B / Circle</dt><dd>Fly back toward the near wall / lower outside</dd></div>
+      <div><dt>Left / right sticks</dt><dd>Move / look</dd></div>
+      <div><dt>E / Y / Triangle</dt><dd>Board / leave the center-axis tram</dd></div>
+    </dl>
+    <p class="controls-footer">At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside, Space or A / Cross rises and Ctrl or B / Circle lowers. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
+  </aside>
+  <div id="loading" role="status">
+    <div class="loading-card">
+      <p class="eyebrow">PROCEDURAL WORLD · LOCAL SEED</p>
+      <h2>Building the landscape</h2>
+      <p id="loading-status">Generating nearby terrain and scenery…</p>
+      <div class="progress-track"><div id="progress"></div></div>
+    </div>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "worldName": "Green Reach",
+  "defaultSeed": 1847,
+  "surface": {
+    "chunkSizeMeters": 96,
+    "diameterMeters": 2000,
+    "circumferentialChunks": 33,
+    "axialLengthMeters": 12288
+  },
+  "streaming": {
+    "visualDistanceMeters": 500,
+    "fogNearMeters": 285,
+    "fogFarMeters": 550,
+    "terrainSegments": 24,
+    "chunksBuiltPerFrame": 2
+  },
+  "landscape": {
+    "baseHeightMeters": 36,
+    "riverWidthMeters": 28,
+    "riverBankMeters": 44,
+    "zoneCellSizeMeters": 768,
+    "treeDensityPerChunk": 26,
+    "lakeChanceInWildZones": 0.055,
+    "lakeChanceInFarmZones": 0.025,
+    "lakeBasinDepthMeters": 14,
+    "lakeWaterLevelOffsetMeters": 8
+  }
+}
