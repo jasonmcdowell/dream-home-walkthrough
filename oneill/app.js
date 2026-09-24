@@ -245,6 +245,8 @@ const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
 const surfaceOrigin = new THREE.Vector3();
 const viewDirection = new THREE.Vector3();
 const flatForward = new THREE.Vector3();
+const cameraFrameUp = new THREE.Vector3();
+const cameraViewUp = new THREE.Vector3();
 const instanceMatrix = new THREE.Matrix4();
 const instanceScale = new THREE.Vector3();
 
@@ -1153,9 +1155,12 @@ function syncCamera() {
     flatForward.copy(pose.axis).multiplyScalar(Math.cos(player.yaw))
       .addScaledVector(pose.tangent, Math.sin(player.yaw));
   }
-  const cameraUp = exteriorView || tramView ? camera.up : pose.up;
+  cameraFrameUp.copy(exteriorView || tramView ? camera.up : pose.up);
   viewDirection.copy(flatForward).multiplyScalar(Math.cos(player.pitch))
-    .addScaledVector(cameraUp, Math.sin(player.pitch));
+    .addScaledVector(cameraFrameUp, Math.sin(player.pitch));
+  cameraViewUp.copy(cameraFrameUp).multiplyScalar(Math.cos(player.pitch))
+    .addScaledVector(flatForward, -Math.sin(player.pitch));
+  camera.up.copy(cameraViewUp);
   camera.lookAt(surfaceOrigin.copy(camera.position).add(viewDirection));
 
   const background = exteriorView ? exteriorBackground : interiorBackground;
@@ -1284,7 +1289,7 @@ function setFlying(enabled) {
 }
 
 function setFlightMode(mode) {
-  player.flightMode = mode === 'rocket' ? 'rocket' : 'minecraft';
+  player.flightMode = mode === 'camera' ? 'camera' : 'minecraft';
   if (player.flying) player.verticalVelocity = 0;
   if (flightModeSelect) flightModeSelect.value = player.flightMode;
   updateTouchActions();
@@ -1292,7 +1297,7 @@ function setFlightMode(mode) {
 }
 
 function toggleFlightMode() {
-  setFlightMode(player.flightMode === 'minecraft' ? 'rocket' : 'minecraft');
+  setFlightMode(player.flightMode === 'minecraft' ? 'camera' : 'minecraft');
 }
 
 function handleJumpTap(source, now = performance.now()) {
@@ -1315,7 +1320,7 @@ function updateTouchActions() {
     jump.setAttribute('aria-label', player.flying
       ? minecraftFlight
         ? 'Ascend while flying; double-tap to stop flying'
-        : 'Double-tap to stop rocket flight'
+        : 'Double-tap to stop camera-directed flight'
       : 'Jump; double-tap to toggle flight');
   }
   if (descend) descend.hidden = !player.flying || !minecraftFlight;
@@ -1351,11 +1356,11 @@ function updateMovementHint() {
   } else if (tramRiding) {
     hint.textContent = `Axis tram · look around · E / Y / Triangle to exit at the station · ${look}`;
   } else if (player.flying) {
-    hint.textContent = player.flightMode === 'rocket'
-      ? `Rocket flight · ${look} · W / left stick thrust follows aim · S reverses · A / D strafe · pitch to climb or dive · V / X / Square switches mode`
-      : `Minecraft flight · WASD / left stick move · Space / A-Cross rise · Ctrl / B-Circle lower · V / X / Square rocket mode · orientation changes on landing`;
+    hint.textContent = player.flightMode === 'camera'
+      ? `Camera-directed flight · ${look} · W / left stick thrust follows aim · S reverses · A / D strafe · look through a full vertical circle to climb or dive · V / X / Square switches mode`
+      : `Minecraft flight · WASD / left stick move · Space / A-Cross rise · Ctrl / B-Circle lower · V / X / Square camera-directed mode · orientation changes on landing`;
   } else {
-    const selectedFlightMode = player.flightMode === 'rocket' ? 'Rocket' : 'Minecraft';
+    const selectedFlightMode = player.flightMode === 'camera' ? 'Camera-directed' : 'Minecraft';
     hint.textContent = `WASD / left stick move · ${look} · Shift / L3 run · Space / A-Cross jump; double-tap to fly · V / X / Square flight mode: ${selectedFlightMode} · E / Y tram · H / R1 / Options controls`;
   }
 }
@@ -2089,11 +2094,7 @@ function step(dt) {
   }
   const movementSpeed = resolveMovementSpeed(gamepad, dt);
   player.yaw -= gamepad.lookX * GAMEPAD_LOOK_SPEED * dt;
-  player.pitch = THREE.MathUtils.clamp(
-    player.pitch - gamepad.lookY * GAMEPAD_LOOK_SPEED * dt,
-    -1.43,
-    1.43,
-  );
+  updateLookPitch(-gamepad.lookY * GAMEPAD_LOOK_SPEED * dt);
   if (interact) handleTramInteraction();
 
   if (tramRiding) {
@@ -2106,8 +2107,8 @@ function step(dt) {
 
   if (playerOutside) {
     advanceExteriorMovement(gamepad, dt, movementSpeed);
-  } else if (player.flying && player.flightMode === 'rocket') {
-    advanceRocketFlight(gamepad, dt, movementSpeed);
+  } else if (player.flying && player.flightMode === 'camera') {
+    advanceCameraDirectedFlight(gamepad, dt, movementSpeed);
   } else {
     advanceVerticalMotion(gamepad, dt, movementSpeed);
     advanceInteriorMovement(gamepad, dt, movementSpeed);
@@ -2123,7 +2124,7 @@ function step(dt) {
   updateTramPrompt();
 }
 
-function advanceRocketFlight(gamepad, dt, movementSpeed) {
+function advanceCameraDirectedFlight(gamepad, dt, movementSpeed) {
   const intent = readIntent(gamepad);
   const horizontalIntent = {
     forward: intent.forward * Math.cos(player.pitch),
@@ -2356,8 +2357,8 @@ function updateHud(now) {
     : playerOutside
       ? 'ZERO-G'
       : player.flying
-        ? player.flightMode === 'rocket'
-          ? 'ROCKET FLIGHT'
+        ? player.flightMode === 'camera'
+          ? 'CAMERA-DIRECTED FLIGHT'
           : 'MINECRAFT FLIGHT'
         : shownSpeed > WALK_SPEED_MPS + 0.05
           ? 'RUN / BOOST'
@@ -2442,8 +2443,17 @@ function frame(now) {
 
 function applyLook(dx, dy, sensitivity = 0.0023) {
   player.yaw -= dx * sensitivity;
-  player.pitch = THREE.MathUtils.clamp(player.pitch - dy * sensitivity, -1.43, 1.43);
+  updateLookPitch(-dy * sensitivity);
   syncCamera();
+}
+
+function updateLookPitch(delta) {
+  const nextPitch = player.pitch + delta;
+  if (player.flying && player.flightMode === 'camera') {
+    player.pitch = THREE.MathUtils.euclideanModulo(nextPitch + Math.PI, Math.PI * 2) - Math.PI;
+  } else {
+    player.pitch = THREE.MathUtils.clamp(nextPitch, -1.43, 1.43);
+  }
 }
 
 document.addEventListener('keydown', event => {

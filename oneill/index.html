@@ -82,10 +82,10 @@
       <span>Flying mode</span>
       <select id="flight-mode">
         <option value="minecraft">Minecraft</option>
-        <option value="rocket">Rocket / airplane</option>
+        <option value="camera">Camera-directed flight</option>
       </select>
     </label>
-    <p class="view-range-note">Minecraft flight keeps vertical movement separate from looking. Rocket flight follows the camera aim while moving forward.</p>
+    <p class="view-range-note">Minecraft flight keeps vertical movement separate from looking. Camera-directed flight follows the view and lets you rotate through a full vertical circle.</p>
     <label class="run-speed-label view-range-label" for="terrain-range">
       <span>Terrain viewing distance (% of diameter)</span>
       <output id="terrain-range-value" for="terrain-range">175% · 3,500 m</output>
@@ -187,9 +187,9 @@
       <div><dt>Shift / L3</dt><dd>Hold to run</dd></div>
       <div><dt>Double-tap W / L1</dt><dd>Toggle running</dd></div>
       <div><dt>Space / A / Cross</dt><dd>Jump · double-tap to fly</dd></div>
-      <div><dt>V / X / Square</dt><dd>Switch Minecraft and rocket flight</dd></div>
+      <div><dt>V / X / Square</dt><dd>Switch Minecraft and camera-directed flight</dd></div>
       <div><dt>Minecraft flight</dt><dd>WASD moves independently; Space / A rises and Ctrl / B lowers</dd></div>
-      <div><dt>Rocket flight</dt><dd>Mouse / right stick aims; W / left stick follows the view, S reverses, A / D strafe; pitch to climb or dive</dd></div>
+      <div><dt>Camera-directed flight</dt><dd>Mouse / right stick aims through a full vertical circle; W / left stick follows the view, S reverses, A / D strafe</dd></div>
       <div><dt>Ctrl / B / Circle</dt><dd>Reverse in Minecraft flight / lower outside</dd></div>
       <div><dt>Left / right sticks</dt><dd>Move / look</dd></div>
       <div><dt>LT / L2 · RT / R2</dt><dd>Throttle · brake; speed holds when released</dd></div>
@@ -205,6 +205,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=dual-flight-modes-20260924"></script>
+  <script type="module" src="app.js?v=full-pitch-camera-flight-20260924"></script>
 </body>
 </html>
