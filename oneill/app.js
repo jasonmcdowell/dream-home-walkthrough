@@ -209,7 +209,8 @@ scene.add(chunkRoots);
 
 const player = {
   s: 0, z: 0, yaw: 0, pitch: 0, elevation: 0,
-  verticalVelocity: 0, flying: false, axisSide: false, fallTargetSide: -1, lastFlightDirection: -1,
+  verticalVelocity: 0, flying: false, flightMode: 'minecraft',
+  axisSide: false, fallTargetSide: -1, lastFlightDirection: -1,
 };
 const keys = new Set();
 const touchIntent = { forward: 0, strafe: 0, jumpHeld: false, jumpPressed: false, descendHeld: false };
@@ -1183,7 +1184,7 @@ function syncControllerStatus(gamepad) {
   if (status) {
     status.hidden = !gamepad;
     status.textContent = gamepad
-      ? `${(gamepad.id || 'Controller').replace(/\s+/g, ' ').trim()} · left stick move · right stick look · LT throttle · RT brake · Y tram · R1 / Options controls · L3 hold-run · L1 toggle-run`
+      ? `${(gamepad.id || 'Controller').replace(/\s+/g, ' ').trim()} · left stick move · right stick look · X / Square flight mode · LT throttle · RT brake · Y tram · R1 / Options controls · L3 hold-run · L1 toggle-run`
       : '';
   }
   const touchControls = document.querySelector('#touch-controls');
@@ -1207,7 +1208,8 @@ function pollGamepad() {
       connected: false,
       forward: 0, strafe: 0, lookX: 0, lookY: 0,
       jumpHeld: false, jumpPressed: false, descendHeld: false,
-      runHeld: false, runTogglePressed: false, hudPressed: false, forwardPressed: false,
+      runHeld: false, runTogglePressed: false, hudPressed: false, flightModePressed: false,
+      forwardPressed: false,
       interactPressed: false, accelerate: 0, decelerate: 0,
     };
   }
@@ -1252,6 +1254,7 @@ function pollGamepad() {
     runHeld: pressed(10), // Left stick click.
     runTogglePressed: pressed(4) && !previous[4], // Left shoulder.
     hudPressed: (pressed(5) && !previous[5]) || (pressed(9) && !previous[9]), // Right shoulder or Options.
+    flightModePressed: pressed(2) && !previous[2], // Standard X / Square.
     interactPressed: pressed(3) && !previous[3], // Standard Y / Triangle.
     accelerate: triggerValue(6), // Standard left trigger (LT / L2) is the throttle.
     decelerate: triggerValue(7), // Standard right trigger (RT / R2) is the brake.
@@ -1280,6 +1283,18 @@ function setFlying(enabled) {
   updateMovementHint();
 }
 
+function setFlightMode(mode) {
+  player.flightMode = mode === 'rocket' ? 'rocket' : 'minecraft';
+  if (player.flying) player.verticalVelocity = 0;
+  if (flightModeSelect) flightModeSelect.value = player.flightMode;
+  updateTouchActions();
+  updateMovementHint();
+}
+
+function toggleFlightMode() {
+  setFlightMode(player.flightMode === 'minecraft' ? 'rocket' : 'minecraft');
+}
+
 function handleJumpTap(source, now = performance.now()) {
   if (now - lastJumpTap[source] <= DOUBLE_TAP_MS) {
     setFlying(!player.flying);
@@ -1294,18 +1309,23 @@ function updateTouchActions() {
   const jump = document.querySelector('#jump-button');
   const descend = document.querySelector('#descend-button');
   const help = document.querySelector('#touch-help');
+  const minecraftFlight = player.flightMode === 'minecraft';
   if (jump) {
-    jump.textContent = player.flying ? 'UP' : 'JUMP';
+    jump.textContent = player.flying ? (minecraftFlight ? 'UP' : 'LAND') : 'JUMP';
     jump.setAttribute('aria-label', player.flying
-      ? 'Ascend while flying; double-tap to stop flying'
+      ? minecraftFlight
+        ? 'Ascend while flying; double-tap to stop flying'
+        : 'Double-tap to stop rocket flight'
       : 'Jump; double-tap to toggle flight');
   }
-  if (descend) descend.hidden = !player.flying;
+  if (descend) descend.hidden = !player.flying || !minecraftFlight;
   if (help) {
     help.textContent = playerOutside
       ? 'Hold UP / DOWN to drift vertically · E to board at tram station'
       : player.flying
-        ? 'Hold UP to cross the axis · hold DOWN to return; orientation changes on landing'
+        ? minecraftFlight
+          ? 'Hold UP to cross the axis · hold DOWN to return; orientation changes on landing'
+          : 'Aim by dragging right · hold forward on the left pad to fly along your view'
         : 'Drag right to look · double-tap JUMP to fly';
   }
 }
@@ -1331,9 +1351,12 @@ function updateMovementHint() {
   } else if (tramRiding) {
     hint.textContent = `Axis tram · look around · E / Y / Triangle to exit at the station · ${look}`;
   } else if (player.flying) {
-    hint.textContent = `Flying · Space / A-Cross cross the axis · Ctrl / B-Circle reverse · orientation changes on landing · E / Y / Triangle tram · ${look} · H / R1 / Options controls`;
+    hint.textContent = player.flightMode === 'rocket'
+      ? `Rocket flight · ${look} · W / left stick thrust follows aim · S reverses · A / D strafe · pitch to climb or dive · V / X / Square switches mode`
+      : `Minecraft flight · WASD / left stick move · Space / A-Cross rise · Ctrl / B-Circle lower · V / X / Square rocket mode · orientation changes on landing`;
   } else {
-    hint.textContent = `WASD / left stick move · ${look} · Shift / L3 run; double-tap W / L1 to toggle · Space / A-Cross jump; double-tap to fly · E / Y / Triangle tram · H / R1 / Options controls`;
+    const selectedFlightMode = player.flightMode === 'rocket' ? 'Rocket' : 'Minecraft';
+    hint.textContent = `WASD / left stick move · ${look} · Shift / L3 run · Space / A-Cross jump; double-tap to fly · V / X / Square flight mode: ${selectedFlightMode} · E / Y tram · H / R1 / Options controls`;
   }
 }
 
@@ -1482,6 +1505,7 @@ const runningSpeedSlider = document.querySelector('#running-speed');
 const runningSpeedValue = document.querySelector('#running-speed-value');
 const flyingSpeedSlider = document.querySelector('#flying-speed');
 const flyingSpeedValue = document.querySelector('#flying-speed-value');
+const flightModeSelect = document.querySelector('#flight-mode');
 const terrainRangeSlider = document.querySelector('#terrain-range');
 const terrainRangeValue = document.querySelector('#terrain-range-value');
 const sceneryRangeSlider = document.querySelector('#scenery-range');
@@ -1955,6 +1979,7 @@ controlsBackdrop.addEventListener('click', () => setControlsPanelOpen(false));
 document.querySelector('#tram-interact').addEventListener('click', () => { interactQueued = true; });
 runningSpeedSlider.addEventListener('input', updateRunningSpeed);
 flyingSpeedSlider.addEventListener('input', updateFlyingSpeed);
+flightModeSelect.addEventListener('change', () => setFlightMode(flightModeSelect.value));
 updateRunningSpeed();
 updateFlyingSpeed();
 terrainRangeSlider.addEventListener('input', () => {
@@ -2042,6 +2067,7 @@ function readIntent(gamepad) {
 function step(dt) {
   const gamepad = pollGamepad();
   if (gamepad.hudPressed) toggleControlsPanel();
+  if (gamepad.flightModePressed) toggleFlightMode();
   if (controlsPanelOpen) {
     updateRunButton();
     return;
@@ -2080,6 +2106,8 @@ function step(dt) {
 
   if (playerOutside) {
     advanceExteriorMovement(gamepad, dt, movementSpeed);
+  } else if (player.flying && player.flightMode === 'rocket') {
+    advanceRocketFlight(gamepad, dt, movementSpeed);
   } else {
     advanceVerticalMotion(gamepad, dt, movementSpeed);
     advanceInteriorMovement(gamepad, dt, movementSpeed);
@@ -2095,8 +2123,24 @@ function step(dt) {
   updateTramPrompt();
 }
 
-function advanceInteriorMovement(gamepad, dt, movementSpeed) {
+function advanceRocketFlight(gamepad, dt, movementSpeed) {
   const intent = readIntent(gamepad);
+  const horizontalIntent = {
+    forward: intent.forward * Math.cos(player.pitch),
+    strafe: intent.strafe,
+  };
+  player.verticalVelocity = intent.forward * Math.sin(player.pitch) * movementSpeed;
+  if (player.verticalVelocity) player.lastFlightDirection = Math.sign(player.verticalVelocity);
+  player.elevation = THREE.MathUtils.clamp(
+    player.elevation + player.verticalVelocity * dt,
+    0,
+    farWallElevation(),
+  );
+  advanceInteriorMovement(gamepad, dt, movementSpeed, horizontalIntent);
+  updateAxisSide();
+}
+
+function advanceInteriorMovement(gamepad, dt, movementSpeed, intent = readIntent(gamepad)) {
   if (!intent.forward && !intent.strafe) return;
   const speed = movementSpeed;
   const surfaceSide = player.axisSide ? -1 : 1;
@@ -2312,7 +2356,9 @@ function updateHud(now) {
     : playerOutside
       ? 'ZERO-G'
       : player.flying
-        ? 'FLIGHT'
+        ? player.flightMode === 'rocket'
+          ? 'ROCKET FLIGHT'
+          : 'MINECRAFT FLIGHT'
         : shownSpeed > WALK_SPEED_MPS + 0.05
           ? 'RUN / BOOST'
           : 'WALKING';
@@ -2416,6 +2462,11 @@ document.addEventListener('keydown', event => {
   }
   if (event.code === 'KeyH' && !event.repeat) {
     toggleControlsPanel();
+    return;
+  }
+  if (event.code === 'KeyV' && !event.repeat) {
+    event.preventDefault();
+    toggleFlightMode();
     return;
   }
   if (controlsPanelOpen) return;

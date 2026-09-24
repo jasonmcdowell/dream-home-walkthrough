@@ -41,7 +41,7 @@
     <span id="heading-detail">+s is spinward</span>
   </aside>
   <button id="controls-toggle" type="button" aria-controls="controls-panel" aria-expanded="false">CONTROLS</button>
-  <div id="hint">WASD / arrows or left stick move · Mouse / drag or right stick look · Shift / L3 run · Space / A jump; double-tap to fly · H / R1 / Options controls</div>
+  <div id="hint">WASD / arrows or left stick move · Mouse / drag or right stick look · Shift / L3 run · Space / A jump; double-tap to fly · V / X / Square flight style · H / R1 / Options controls</div>
   <div id="controller-status" hidden aria-live="polite"></div>
   <div id="tram-prompt" hidden aria-live="polite">
     <span id="tram-message"></span>
@@ -78,6 +78,14 @@
     </label>
     <input id="flying-speed" type="range" min="5" max="2000" step="0.1" value="1000">
     <div class="speed-range-labels"><span>5.0 m/s</span><span>2,000 m/s</span></div>
+    <label class="run-speed-label view-range-label" for="flight-mode">
+      <span>Flying mode</span>
+      <select id="flight-mode">
+        <option value="minecraft">Minecraft</option>
+        <option value="rocket">Rocket / airplane</option>
+      </select>
+    </label>
+    <p class="view-range-note">Minecraft flight keeps vertical movement separate from looking. Rocket flight follows the camera aim while moving forward.</p>
     <label class="run-speed-label view-range-label" for="terrain-range">
       <span>Terrain viewing distance (% of diameter)</span>
       <output id="terrain-range-value" for="terrain-range">175% · 3,500 m</output>
@@ -179,7 +187,10 @@
       <div><dt>Shift / L3</dt><dd>Hold to run</dd></div>
       <div><dt>Double-tap W / L1</dt><dd>Toggle running</dd></div>
       <div><dt>Space / A / Cross</dt><dd>Jump · double-tap to fly</dd></div>
-      <div><dt>Ctrl / B / Circle</dt><dd>Fly back toward the near wall / lower outside</dd></div>
+      <div><dt>V / X / Square</dt><dd>Switch Minecraft and rocket flight</dd></div>
+      <div><dt>Minecraft flight</dt><dd>WASD moves independently; Space / A rises and Ctrl / B lowers</dd></div>
+      <div><dt>Rocket flight</dt><dd>Mouse / right stick aims; W / left stick follows the view, S reverses, A / D strafe; pitch to climb or dive</dd></div>
+      <div><dt>Ctrl / B / Circle</dt><dd>Reverse in Minecraft flight / lower outside</dd></div>
       <div><dt>Left / right sticks</dt><dd>Move / look</dd></div>
       <div><dt>LT / L2 · RT / R2</dt><dd>Throttle · brake; speed holds when released</dd></div>
       <div><dt>E / Y / Triangle</dt><dd>Board / leave the center-axis tram</dd></div>
@@ -194,6 +205,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=independent-view-ranges-20260923"></script>
+  <script type="module" src="app.js?v=dual-flight-modes-20260924"></script>
 </body>
 </html>

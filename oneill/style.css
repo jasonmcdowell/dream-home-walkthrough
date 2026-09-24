@@ -382,6 +382,16 @@ h1, h2, p { margin-top: 0; }
 
 #running-speed-value, #flying-speed-value, #terrain-range-value, #scenery-range-value { color: #587755; font-variant-numeric: tabular-nums; }
 
+#flight-mode {
+  min-width: 140px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5ca;
+  border-radius: 8px;
+  background: white;
+  color: #34493e;
+  font: inherit;
+}
+
 #running-speed, #flying-speed, #terrain-range, #scenery-range {
   display: block;
   width: 100%;
