@@ -237,6 +237,7 @@ let flyingSpeedMps = 1000;
 let movementSpeedMps = WALK_SPEED_MPS;
 let controllerRampSpeedMps = WALK_SPEED_MPS;
 let controllerSpeedRampActive = false;
+let controllerSpeedMode = 'walk';
 let controlsPanelOpen = false;
 
 function getSeed(config) {
@@ -1595,8 +1596,12 @@ function updateSpeedLimitOutput(slider, output) {
 function updateRunningSpeed() {
   runningSpeedMps = Number(runningSpeedSlider.value);
   updateSpeedLimitOutput(runningSpeedSlider, runningSpeedValue);
-  if (!playerOutside && !player.flying) {
-    controllerRampSpeedMps = Math.min(controllerRampSpeedMps, runningSpeedMps);
+  const running = controllerSpeedMode === 'run' || runToggled || runKeyHeld;
+  if (!playerOutside && !player.flying && running) {
+    controllerSpeedMode = 'run';
+    controllerSpeedRampActive = false;
+    controllerRampSpeedMps = runningSpeedMps;
+    movementSpeedMps = runningSpeedMps;
   }
 }
 
@@ -1604,38 +1609,42 @@ function updateFlyingSpeed() {
   flyingSpeedMps = Number(flyingSpeedSlider.value);
   updateSpeedLimitOutput(flyingSpeedSlider, flyingSpeedValue);
   if (playerOutside || player.flying) {
-    controllerRampSpeedMps = Math.min(controllerRampSpeedMps, flyingSpeedMps);
+    controllerSpeedMode = 'flight';
+    controllerSpeedRampActive = false;
+    controllerRampSpeedMps = flyingSpeedMps;
+    movementSpeedMps = flyingSpeedMps;
   }
 }
 
 function resolveMovementSpeed(gamepad, dt) {
   const flightMode = playerOutside || player.flying;
   const speedLimit = flightMode ? flyingSpeedMps : runningSpeedMps;
-  controllerRampSpeedMps = Math.min(controllerRampSpeedMps, speedLimit);
   const running = !flightMode && (runToggled || runKeyHeld || gamepad.runHeld);
-  const baseSpeed = running
-    ? runningSpeedMps
-    : flightMode
-      ? gamepad.connected
-        ? Math.min(controllerRampSpeedMps, speedLimit)
-        : speedLimit
-      : WALK_SPEED_MPS;
+  const mode = flightMode ? 'flight' : running ? 'run' : 'walk';
+  const baseSpeed = flightMode ? flyingSpeedMps : running ? runningSpeedMps : WALK_SPEED_MPS;
+  if (mode !== controllerSpeedMode) {
+    controllerSpeedMode = mode;
+    controllerSpeedRampActive = false;
+    controllerRampSpeedMps = baseSpeed;
+  }
   const accelerating = gamepad.accelerate > 0.015;
   const braking = gamepad.decelerate > 0.015;
 
   if (!gamepad.connected) {
     controllerSpeedRampActive = false;
+    controllerRampSpeedMps = baseSpeed;
     movementSpeedMps = baseSpeed;
     return movementSpeedMps;
   }
 
   if (gamepad.runTogglePressed || (gamepad.runHeld && !accelerating && !braking)) {
     controllerSpeedRampActive = false;
+    controllerRampSpeedMps = baseSpeed;
   }
 
   if (accelerating || braking) {
     if (!controllerSpeedRampActive) {
-      controllerRampSpeedMps = movementSpeedMps;
+      controllerRampSpeedMps = baseSpeed;
       controllerSpeedRampActive = true;
     }
     const acceleration = Math.max(4, speedLimit * GAMEPAD_ACCELERATION_FRACTION);
@@ -1784,7 +1793,12 @@ function advanceVerticalMotion(gamepad, dt, movementSpeed) {
   const farElevation = farWallElevation();
   const side = player.fallTargetSide || -1;
   const distanceFromAxis = Math.abs(player.elevation - nearDistance);
-  const gravity = Math.max(0.35, 9.81 * THREE.MathUtils.clamp(distanceFromAxis / world.radius, 0, 1));
+  const wallDistance = player.axisSide ? farWallDistance(player.s, player.z) : nearDistance;
+  const gravity = THREE.MathUtils.lerp(
+    3,
+    9.8,
+    THREE.MathUtils.clamp(distanceFromAxis / wallDistance, 0, 1),
+  );
   player.verticalVelocity += side * gravity * dt;
   player.elevation += player.verticalVelocity * dt;
   if (side < 0 && player.elevation <= 0) {
