@@ -223,6 +223,13 @@ export function placeTorusHome(scene, assets, world, site) {
     root = new THREE.Group();
     root.name = 'torus-home-on-cylinder';
     root.add(assets.visual);
+    // Match the Torus walkthrough's lightweight warm interior bounce lighting.
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3;
+      const light = new THREE.PointLight(0xffefd8, 30, 14, 2);
+      light.position.set(9 * Math.cos(angle), 3, 9 * Math.sin(angle));
+      root.add(light);
+    }
     scene.add(root);
   }
   const pose = world.pointAtHeight(site.s, site.z, site.height + 0.04);

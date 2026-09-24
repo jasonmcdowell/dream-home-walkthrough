@@ -42,7 +42,12 @@ renderer.shadowMap.enabled = false;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xaec7c8);
-const camera = new THREE.PerspectiveCamera(64, innerWidth / innerHeight, 0.1, 5000);
+const camera = new THREE.PerspectiveCamera(
+  combinedHomeMode ? 55 : 64,
+  innerWidth / innerHeight,
+  combinedHomeMode ? 0.04 : 0.1,
+  5000,
+);
 const hemisphere = new THREE.HemisphereLight(0xe5f1ec, 0x6e765b, isTouch ? 2.05 : 1.85);
 scene.add(hemisphere);
 const sunlight = new THREE.DirectionalLight(0xffedcf, 2.2);
