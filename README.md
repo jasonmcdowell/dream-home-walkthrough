@@ -1,28 +1,35 @@
-# Dream Home Walkthrough
+# Placed and Spaces · Public Walkthroughs
 
-This public repository contains the static GitHub Pages site for the interactive Dream Home walkthrough.
+This repository hosts the static GitHub Pages site for the Placed and Spaces
+experiences. The repository name and Pages base URL remain unchanged.
 
-Live site: [jasonmcdowell.github.io/dream-home-walkthrough](https://jasonmcdowell.github.io/dream-home-walkthrough/)
+## Published routes
 
-## Project structure
+- `/` — Placed and Spaces landing page.
+- `/torus-home/` — Torus Home walkthrough.
+- `/oneill/` — O’Neill Cylinder environment.
+- `/oneill/?house=torus` — Torus Home inside the O’Neill Cylinder.
 
-- **index.html**, **style.css**, and **app.js** make up the browser walkthrough.
-- **assets/** contains the published model, data, and image assets.
-- **vendor/** contains the locally hosted Three.js build and addons.
-- **.nojekyll** keeps GitHub Pages from rewriting the static site.
-
-The design files, Blender sources, scripts, tests, and other working material remain in the private Dream Home project. This repository contains only the files needed to run the public walkthrough.
+The two standalone experiences live in their own route folders. `/vendor/` is
+the locally hosted Three.js runtime shared by both, and `houses/oneill-cylinder/`
+contains the browser-side procedural generator and its configuration. The
+repository contains only the files needed by the static browser builds, not the
+editable Blender sources or development-only project files.
 
 ## Publishing updates
 
-From the private Dream Home project, run:
+The source is maintained in the private Dream Home project. From that
+repository, run `./publish-public-walkthrough.sh`. The publisher stages the
+landing page and both experiences, synchronizing only the paths owned by each
+site section. It does not sync-delete the public repository root or commit and
+push automatically.
 
-    ./publish-public-walkthrough.sh
+Review the changes here before publishing:
 
-The script updates a sibling checkout at ../Dream Home Walkthrough by default. Review the changes, commit them, and push to main to publish the next version.
+```sh
+git status
+git diff --stat
+```
 
-## Contributions
-
-Pull requests are welcome for changes to the public walkthrough site. Please keep contributions self-contained in this repository and do not add private design files, credentials, or generated test output.
-
-GitHub’s individual-file limit is 100 MiB. The published model is currently below that limit; large future assets should be compressed or hosted separately.
+GitHub’s individual-file limit is 100 MiB. Large future assets should be
+compressed or hosted separately.

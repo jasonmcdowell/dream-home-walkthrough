@@ -2755,13 +2755,13 @@ async function start() {
   try {
     let houseAssetsPromise = Promise.resolve({ assets: null });
     if (combinedHomeMode) {
-      document.title = "Torus Home inside Green Reach · O'Neill Cylinder";
-      document.querySelector('#world-hud .eyebrow').textContent = 'DREAM HOME · INSIDE GREEN REACH';
+      document.title = "Torus Home inside the O'Neill Cylinder";
+      document.querySelector('#world-hud .eyebrow').textContent = 'PLACED AND SPACES · TORUS HOME + CYLINDER';
       document.querySelector('#world-hud h1').textContent = 'Torus Home';
       torusHomeLoading = { house: 'starting', collision: 'starting' };
       houseAssetsPromise = loadTorusHomeAssets({
-        visualUrl: '../assets/dream-home.glb',
-        collisionUrl: '../assets/torus-home-collision.glb',
+        visualUrl: '../torus-home/assets/dream-home.glb',
+        collisionUrl: '../torus-home/assets/torus-home-collision.glb',
         onVisualLoaded: visual => {
           torusHomeAssets = { visual, collision: null };
           if (world?.torusHomeSite) {
