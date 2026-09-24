@@ -4,23 +4,23 @@
   "defaultSeed": 1847,
   "surface": {
     "chunkSizeMeters": 256,
-    "diameterMeters": 3000,
-    "groundDepthMeters": 500,
-    "circumferentialChunks": 96,
+    "diameterMeters": 2000,
+    "groundDepthMeters": 200,
+    "circumferentialChunks": 64,
     "axialLengthMeters": 12288
   },
   "streaming": {
-    "visualDistanceMeters": 1600,
+    "visualDistanceMeters": 3500,
     "sceneryDistanceMeters": 800,
-    "fogNearMeters": 912,
-    "fogFarMeters": 1760,
-    "terrainSegments": 20,
+    "fogNearMeters": 1995,
+    "fogFarMeters": 3850,
+    "terrainSegments": 12,
     "chunksBuiltPerFrame": 2,
     "sceneryBuiltPerFrame": 2
   },
   "landscape": {
     "baseHeightMeters": 0,
-    "terrainVariability": 0.35,
+    "terrainVariability": 0.1,
     "groundClampMarginMeters": 24,
     "terrainWarpMeters": 420,
     "continentalReliefMeters": 190,

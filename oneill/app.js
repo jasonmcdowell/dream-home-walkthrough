@@ -231,7 +231,8 @@ const EXTERIOR_MAX_DISTANCE = 1000;
 const TRAM_SPEED_MPS = 220;
 const GAMEPAD_ACCELERATION_FRACTION = 0.14;
 const GAMEPAD_BRAKE_MULTIPLIER = 1.5;
-let runningSpeedMps = 7.2;
+let runningSpeedMps = 10;
+let flyingSpeedMps = 1000;
 let movementSpeedMps = WALK_SPEED_MPS;
 let controllerRampSpeedMps = WALK_SPEED_MPS;
 let controllerSpeedRampActive = false;
@@ -1352,8 +1353,10 @@ const controlsPanel = document.querySelector('#controls-panel');
 const controlsBackdrop = document.querySelector('#controls-backdrop');
 const controlsToggle = document.querySelector('#controls-toggle');
 const controlsClose = document.querySelector('#controls-close');
-const runSpeedSlider = document.querySelector('#run-speed');
-const runSpeedValue = document.querySelector('#run-speed-value');
+const runningSpeedSlider = document.querySelector('#running-speed');
+const runningSpeedValue = document.querySelector('#running-speed-value');
+const flyingSpeedSlider = document.querySelector('#flying-speed');
+const flyingSpeedValue = document.querySelector('#flying-speed-value');
 const terrainRangeSlider = document.querySelector('#terrain-range');
 const terrainRangeValue = document.querySelector('#terrain-range-value');
 const sceneryRangeSlider = document.querySelector('#scenery-range');
@@ -1550,24 +1553,42 @@ for (const input of worldSettingInputs) {
 }
 regenerateWorldButton?.addEventListener('click', regenerateWorld);
 
-function updateRunSpeed() {
-  runningSpeedMps = Number(runSpeedSlider.value);
-  const formattedSpeed = runningSpeedMps >= 100
-    ? Math.round(runningSpeedMps).toLocaleString()
-    : runningSpeedMps.toFixed(1);
-  runSpeedValue.value = `${formattedSpeed} m/s`;
-  runSpeedValue.textContent = runSpeedValue.value;
-  controllerRampSpeedMps = Math.min(controllerRampSpeedMps, runningSpeedMps);
+function updateSpeedLimitOutput(slider, output) {
+  const speed = Number(slider.value);
+  const formattedSpeed = speed >= 100
+    ? Math.round(speed).toLocaleString()
+    : speed.toFixed(1);
+  output.value = `${formattedSpeed} m/s`;
+  output.textContent = output.value;
+}
+
+function updateRunningSpeed() {
+  runningSpeedMps = Number(runningSpeedSlider.value);
+  updateSpeedLimitOutput(runningSpeedSlider, runningSpeedValue);
+  if (!playerOutside && !player.flying) {
+    controllerRampSpeedMps = Math.min(controllerRampSpeedMps, runningSpeedMps);
+  }
+}
+
+function updateFlyingSpeed() {
+  flyingSpeedMps = Number(flyingSpeedSlider.value);
+  updateSpeedLimitOutput(flyingSpeedSlider, flyingSpeedValue);
+  if (playerOutside || player.flying) {
+    controllerRampSpeedMps = Math.min(controllerRampSpeedMps, flyingSpeedMps);
+  }
 }
 
 function resolveMovementSpeed(gamepad, dt) {
-  const running = runToggled || runKeyHeld || gamepad.runHeld;
+  const flightMode = playerOutside || player.flying;
+  const speedLimit = flightMode ? flyingSpeedMps : runningSpeedMps;
+  controllerRampSpeedMps = Math.min(controllerRampSpeedMps, speedLimit);
+  const running = !flightMode && (runToggled || runKeyHeld || gamepad.runHeld);
   const baseSpeed = running
     ? runningSpeedMps
-    : playerOutside || player.flying
+    : flightMode
       ? gamepad.connected
-        ? Math.min(controllerRampSpeedMps, runningSpeedMps)
-        : runningSpeedMps
+        ? Math.min(controllerRampSpeedMps, speedLimit)
+        : speedLimit
       : WALK_SPEED_MPS;
   const accelerating = gamepad.accelerate > 0.015;
   const braking = gamepad.decelerate > 0.015;
@@ -1587,12 +1608,12 @@ function resolveMovementSpeed(gamepad, dt) {
       controllerRampSpeedMps = movementSpeedMps;
       controllerSpeedRampActive = true;
     }
-    const acceleration = Math.max(4, runningSpeedMps * GAMEPAD_ACCELERATION_FRACTION);
+    const acceleration = Math.max(4, speedLimit * GAMEPAD_ACCELERATION_FRACTION);
     controllerRampSpeedMps += (
       gamepad.accelerate * acceleration
       - gamepad.decelerate * acceleration * GAMEPAD_BRAKE_MULTIPLIER
     ) * dt;
-    controllerRampSpeedMps = THREE.MathUtils.clamp(controllerRampSpeedMps, 0, runningSpeedMps);
+    controllerRampSpeedMps = THREE.MathUtils.clamp(controllerRampSpeedMps, 0, speedLimit);
   }
 
   movementSpeedMps = controllerSpeedRampActive ? controllerRampSpeedMps : baseSpeed;
@@ -1684,8 +1705,10 @@ controlsToggle.addEventListener('click', toggleControlsPanel);
 controlsClose.addEventListener('click', () => setControlsPanelOpen(false));
 controlsBackdrop.addEventListener('click', () => setControlsPanelOpen(false));
 document.querySelector('#tram-interact').addEventListener('click', () => { interactQueued = true; });
-runSpeedSlider.addEventListener('input', updateRunSpeed);
-updateRunSpeed();
+runningSpeedSlider.addEventListener('input', updateRunningSpeed);
+flyingSpeedSlider.addEventListener('input', updateFlyingSpeed);
+updateRunningSpeed();
+updateFlyingSpeed();
 terrainRangeSlider.addEventListener('input', () => {
   updateTerrainRange();
   scheduleViewRangeRefresh();
