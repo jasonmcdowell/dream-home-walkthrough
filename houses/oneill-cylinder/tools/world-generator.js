@@ -419,14 +419,17 @@ export class CylinderWorld {
     };
   }
 
-  #ellipseRadius(s, z, body) {
+  #ellipseRadius(s, z, body, padding = 0) {
     const ds = this.shortestDeltaS(s, body.s);
     const dz = z - body.z;
     const cosYaw = Math.cos(body.yaw || 0);
     const sinYaw = Math.sin(body.yaw || 0);
     const rotatedS = ds * cosYaw + dz * sinYaw;
     const rotatedZ = -ds * sinYaw + dz * cosYaw;
-    return Math.sqrt((rotatedS / body.radiusS) ** 2 + (rotatedZ / body.radiusZ) ** 2);
+    return Math.sqrt(
+      (rotatedS / (body.radiusS + padding)) ** 2
+      + (rotatedZ / (body.radiusZ + padding)) ** 2,
+    );
   }
 
   #inlandSeaTerrainHeight(height, s, z) {
@@ -948,64 +951,143 @@ export class CylinderWorld {
   }
 
   buildRiverGeometry(column, row) {
+    if (!this.riverPaths.length) return null;
     const sizeS = this.circumferentialChunkSize;
     const sizeZ = this.chunkSize;
     const s0 = column * sizeS;
     const s1 = s0 + sizeS;
     const z0 = this.chunkStartZ(row);
     const rows = 32;
+    const largestRiverHalfWidth = Math.max(...this.riverPaths.map(path => path.width / 2));
+    const lakeBodies = this.#allWaterBodies()
+      .filter(body => body.type === 'lake')
+      .filter(body => this.#bodyIntersectsChunk({
+        ...body,
+        radiusS: body.radiusS + largestRiverHalfWidth,
+        radiusZ: body.radiusZ + largestRiverHalfWidth,
+      }, s0, z0, sizeS, sizeZ));
+    const subdivisionsPerRow = lakeBodies.length ? 4 : 1;
     const positions = [];
     const indices = [];
 
-    // Vector3.toArray grows the target array; manually advancing its length
-    // here would leave sparse coordinates that become NaNs in the GPU buffer.
     for (const path of this.riverPaths) {
-      const baseVertex = positions.length / 3;
-      let intersects = false;
-      if (path.orientation === 'longitudinal') {
-        const middleS = (s0 + s1) / 2;
-        const halfWidth = path.width / 2;
-        for (let i = 0; i <= rows; i++) {
-          const z = z0 + sizeZ * i / rows;
+      const halfWidth = path.width / 2;
+      const longitudinal = path.orientation === 'longitudinal';
+      const middleS = (s0 + s1) / 2;
+      const sectionAt = progress => {
+        if (longitudinal) {
+          const z = z0 + sizeZ * progress / rows;
           const canonicalCenter = this.#longitudinalRiverCenter(path, z);
-          const center = canonicalCenter + Math.round((middleS - canonicalCenter) / this.circumference) * this.circumference;
-          const left = THREE.MathUtils.clamp(center - halfWidth, s0, s1);
-          const right = THREE.MathUtils.clamp(center + halfWidth, s0, s1);
-          if (right - left > 0.05) intersects = true;
-          const height = this.#riverWaterLevel(path, center, z) + 0.12;
-          this.pointAtHeight(left, z, height).position.toArray(positions, positions.length);
-          this.pointAtHeight(right, z, height).position.toArray(positions, positions.length);
+          const centerS = canonicalCenter
+            + Math.round((middleS - canonicalCenter) / this.circumference) * this.circumference;
+          return {
+            s: centerS,
+            z,
+            edge0: THREE.MathUtils.clamp(centerS - halfWidth, s0, s1),
+            edge1: THREE.MathUtils.clamp(centerS + halfWidth, s0, s1),
+            height: this.#riverWaterLevel(path, centerS, z) + 0.12,
+          };
         }
-      } else {
-        const halfWidth = path.width / 2;
-        for (let i = 0; i <= rows; i++) {
-          const s = s0 + sizeS * i / rows;
-          const center = this.#circumferentialRiverCenter(path, s);
-          const lower = THREE.MathUtils.clamp(center - halfWidth, z0, z0 + sizeZ);
-          const upper = THREE.MathUtils.clamp(center + halfWidth, z0, z0 + sizeZ);
-          if (upper - lower > 0.05) intersects = true;
-          const height = this.#riverWaterLevel(path, s, center) + 0.12;
-          this.pointAtHeight(s, lower, height).position.toArray(positions, positions.length);
-          this.pointAtHeight(s, upper, height).position.toArray(positions, positions.length);
+
+        const s = s0 + sizeS * progress / rows;
+        const centerZ = this.#circumferentialRiverCenter(path, s);
+        return {
+          s,
+          z: centerZ,
+          edge0: THREE.MathUtils.clamp(centerZ - halfWidth, z0, z0 + sizeZ),
+          edge1: THREE.MathUtils.clamp(centerZ + halfWidth, z0, z0 + sizeZ),
+          height: this.#riverWaterLevel(path, s, centerZ) + 0.12,
+        };
+      };
+      const lakeOwnsSection = section => lakeBodies.some(body => (
+        this.#ellipseRadius(section.s, section.z, body, halfWidth) <= 1
+      ));
+      let activeStrip = [];
+      const flushStrip = () => {
+        if (activeStrip.length >= 2) {
+          const base = positions.length / 3;
+          for (const { section } of activeStrip) {
+            this.pointAtHeight(
+              longitudinal ? section.edge0 : section.s,
+              longitudinal ? section.z : section.edge0,
+              section.height,
+            ).position.toArray(positions, positions.length);
+            this.pointAtHeight(
+              longitudinal ? section.edge1 : section.s,
+              longitudinal ? section.z : section.edge1,
+              section.height,
+            ).position.toArray(positions, positions.length);
+          }
+          for (let index = 0; index < activeStrip.length - 1; index++) {
+            const a = base + index * 2;
+            const b = a + 2;
+            const c = a + 1;
+            const d = b + 1;
+            if (longitudinal) {
+              indices.push(a, b, c, b, d, c);
+            } else {
+              // A circumferential ribbon's tangent points along s, so reverse
+              // the strip winding to face the cylinder interior.
+              indices.push(a, c, b, b, c, d);
+            }
+          }
         }
-      }
-      if (!intersects) {
-        positions.length = baseVertex * 3;
-        continue;
-      }
+        activeStrip = [];
+      };
+      const appendStrip = (startProgress, endProgress, start, end) => {
+        if (Math.abs(start.edge1 - start.edge0) <= 0.05
+          || Math.abs(end.edge1 - end.edge0) <= 0.05) {
+          flushStrip();
+          return;
+        }
+        const previous = activeStrip[activeStrip.length - 1];
+        if (!previous || Math.abs(previous.progress - startProgress) > 1e-8) {
+          flushStrip();
+          activeStrip.push({ progress: startProgress, section: start });
+        }
+        activeStrip.push({ progress: endProgress, section: end });
+      };
+
+      // Lakes own their water surface. Clip each river ribbon at a padded
+      // ellipse boundary so its differently colored mesh cannot overlap the
+      // lake or z-fight against it. Short substeps keep the shoreline cut smooth.
       for (let i = 0; i < rows; i++) {
-        const a = baseVertex + i * 2;
-        const b = a + 2;
-        const c = a + 1;
-        const d = b + 1;
-        if (path.orientation === 'longitudinal') {
-          indices.push(a, b, c, b, d, c);
-        } else {
-          // A circumferential ribbon's tangent points along s, so reverse the
-          // strip winding to keep its surface normal facing the cylinder interior.
-          indices.push(a, c, b, b, c, d);
+        for (let substep = 0; substep < subdivisionsPerRow; substep++) {
+          const startProgress = i + substep / subdivisionsPerRow;
+          const endProgress = i + (substep + 1) / subdivisionsPerRow;
+          const start = sectionAt(startProgress);
+          const end = sectionAt(endProgress);
+          const startOpen = !lakeOwnsSection(start);
+          const endOpen = !lakeOwnsSection(end);
+          if (startOpen && endOpen) {
+            appendStrip(startProgress, endProgress, start, end);
+            continue;
+          }
+          if (startOpen === endOpen) {
+            flushStrip();
+            continue;
+          }
+
+          let low = startProgress;
+          let high = endProgress;
+          for (let iteration = 0; iteration < 12; iteration++) {
+            const middle = (low + high) / 2;
+            const middleOpen = !lakeOwnsSection(sectionAt(middle));
+            if (middleOpen === startOpen) low = middle;
+            else high = middle;
+          }
+          const boundaryProgress = (low + high) / 2;
+          const boundary = sectionAt(boundaryProgress);
+          if (startOpen) {
+            appendStrip(startProgress, boundaryProgress, start, boundary);
+            flushStrip();
+          } else {
+            flushStrip();
+            appendStrip(boundaryProgress, endProgress, boundary, end);
+          }
         }
       }
+      flushStrip();
     }
 
     if (!positions.length) return null;
