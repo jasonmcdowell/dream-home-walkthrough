@@ -1323,7 +1323,9 @@ function updateTouchActions() {
   const descend = document.querySelector('#descend-button');
   const help = document.querySelector('#touch-help');
   const minecraftFlight = player.flightMode === 'minecraft';
+  const cameraDirectedExterior = playerOutside && !minecraftFlight;
   if (jump) {
+    jump.hidden = cameraDirectedExterior;
     jump.textContent = player.flying ? (minecraftFlight ? 'UP' : 'LAND') : 'JUMP';
     jump.setAttribute('aria-label', player.flying
       ? minecraftFlight
@@ -1334,7 +1336,9 @@ function updateTouchActions() {
   if (descend) descend.hidden = !player.flying || !minecraftFlight;
   if (help) {
     help.textContent = playerOutside
-      ? 'Hold UP / DOWN to drift vertically · E to board at tram station'
+      ? minecraftFlight
+        ? 'Hold UP / DOWN to drift vertically · E to board at tram station'
+        : 'Aim by dragging right · push MOVE forward to fly along your view · E to board at tram station'
       : player.flying
         ? minecraftFlight
           ? 'Hold UP to cross the axis · hold DOWN to return; orientation changes on landing'
@@ -1360,7 +1364,9 @@ function updateMovementHint() {
   if (!hint) return;
   const look = pointerLocked ? 'Mouse locked · Esc releases' : 'Mouse / drag or right stick look';
   if (playerOutside) {
-    hint.textContent = `Exterior zero-G · roam up to 1,000 m from the hull · WASD / left stick drift · Space / A-Cross up · Ctrl / B-Circle down · ${look} · H / R1 / Options controls`;
+    hint.textContent = player.flightMode === 'camera'
+      ? `Exterior zero-G camera-directed flight · roam up to 1,000 m from the hull · W / S follow view · A / D strafe along camera-right · ${look} · V / X / Square switches mode · H / R1 / Options controls`
+      : `Exterior zero-G Minecraft flight · roam up to 1,000 m from the hull · WASD / left stick drift · Space / A-Cross up · Ctrl / B-Circle down · ${look} · V / X / Square switches mode · H / R1 / Options controls`;
   } else if (tramRiding) {
     hint.textContent = `Axis tram · look around · E / Y / Triangle to exit at the station · ${look}`;
   } else if (player.flying) {
@@ -2132,7 +2138,12 @@ function step(dt) {
   }
 
   if (playerOutside) {
-    advanceExteriorMovement(gamepad, dt, movementSpeed);
+    if (player.flightMode === 'camera') {
+      const direction = cameraDirectedFlightVector(gamepad);
+      advanceExteriorMovement(gamepad, dt, movementSpeed, direction);
+    } else {
+      advanceExteriorMovement(gamepad, dt, movementSpeed);
+    }
   } else if (player.flying && player.flightMode === 'camera') {
     advanceCameraDirectedFlight(gamepad, dt, movementSpeed);
   } else {
@@ -2150,22 +2161,28 @@ function step(dt) {
   updateTramPrompt();
 }
 
-function advanceCameraDirectedFlight(gamepad, dt, movementSpeed) {
+function cameraDirectedFlightVector(gamepad) {
+  // This rendered world-space camera basis is shared inside and outside: the
+  // cylinder path projects it onto surface coordinates; exterior flight uses XYZ.
   syncCamera();
   const intent = readIntent(gamepad);
   cameraFlightMotion.copy(viewDirection).multiplyScalar(intent.forward)
     .addScaledVector(cameraViewRight, intent.strafe);
   const intentLength = cameraFlightMotion.length();
   if (intentLength > 1) cameraFlightMotion.multiplyScalar(1 / intentLength);
+  return cameraFlightMotion;
+}
 
+function advanceCameraDirectedFlight(gamepad, dt, movementSpeed) {
+  const direction = cameraDirectedFlightVector(gamepad);
   const pose = world.surfacePose(player.s, player.z, playerEyeHeight + player.elevation);
   const travel = movementSpeed * dt;
   const surfaceSide = player.axisSide ? -1 : 1;
   const surfaceDisplacement = {
-    ds: cameraFlightMotion.dot(pose.tangent) * surfaceSide * travel,
-    dz: cameraFlightMotion.dot(pose.axis) * travel,
+    ds: direction.dot(pose.tangent) * surfaceSide * travel,
+    dz: direction.dot(pose.axis) * travel,
   };
-  player.verticalVelocity = cameraFlightMotion.dot(pose.up) * movementSpeed;
+  player.verticalVelocity = direction.dot(pose.up) * movementSpeed;
   if (player.verticalVelocity) player.lastFlightDirection = Math.sign(player.verticalVelocity);
   player.elevation = THREE.MathUtils.clamp(
     player.elevation + player.verticalVelocity * dt,
@@ -2264,17 +2281,26 @@ function enterInterior(position) {
   updateMovementHint();
 }
 
-function advanceExteriorMovement(gamepad, dt, movementSpeed) {
-  const intent = readIntent(gamepad);
-  const ascend = keys.has('Space') || gamepad.jumpHeld || touchIntent.jumpHeld;
-  const descend = keys.has('ControlLeft') || keys.has('ControlRight')
-    || gamepad.descendHeld || touchIntent.descendHeld;
-  const vertical = Number(ascend) - Number(descend);
-  if (!intent.forward && !intent.strafe && !vertical) return;
-
-  let moveX = (intent.forward * Math.sin(player.yaw) + intent.strafe * Math.cos(player.yaw)) * movementSpeed;
-  let moveY = vertical * movementSpeed;
-  let moveZ = (intent.forward * Math.cos(player.yaw) - intent.strafe * Math.sin(player.yaw)) * movementSpeed;
+function advanceExteriorMovement(gamepad, dt, movementSpeed, cameraDirection = null) {
+  const intent = cameraDirection ? null : readIntent(gamepad);
+  let moveX;
+  let moveY;
+  let moveZ;
+  if (cameraDirection) {
+    moveX = cameraDirection.x * movementSpeed;
+    moveY = cameraDirection.y * movementSpeed;
+    moveZ = cameraDirection.z * movementSpeed;
+  } else {
+    const ascend = keys.has('Space') || gamepad.jumpHeld || touchIntent.jumpHeld;
+    const descend = keys.has('ControlLeft') || keys.has('ControlRight')
+      || gamepad.descendHeld || touchIntent.descendHeld;
+    const vertical = Number(ascend) - Number(descend);
+    if (!intent.forward && !intent.strafe && !vertical) return;
+    moveX = (intent.forward * Math.sin(player.yaw) + intent.strafe * Math.cos(player.yaw)) * movementSpeed;
+    moveY = vertical * movementSpeed;
+    moveZ = (intent.forward * Math.cos(player.yaw) - intent.strafe * Math.sin(player.yaw)) * movementSpeed;
+  }
+  if (Math.hypot(moveX, moveY, moveZ) < 1e-9) return;
   const magnitude = Math.hypot(moveX, moveY, moveZ);
   if (magnitude > movementSpeed) {
     moveX *= movementSpeed / magnitude;
@@ -2392,7 +2418,7 @@ function updateHud(now) {
   movementSpeedMode.textContent = tramRiding
     ? 'TRAM'
     : playerOutside
-      ? 'ZERO-G'
+      ? player.flightMode === 'camera' ? 'ZERO-G · CAMERA' : 'ZERO-G · MINECRAFT'
       : player.flying
         ? player.flightMode === 'camera'
           ? 'CAMERA-DIRECTED FLIGHT'
