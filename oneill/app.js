@@ -92,7 +92,8 @@ const fieldFurrowMaterials = [
 const backdropMaterial = new THREE.MeshBasicMaterial({
   vertexColors: true,
   side: THREE.DoubleSide,
-  fog: false,
+  fog: true,
+  depthWrite: false,
   toneMapped: false,
 });
 const interiorBackground = new THREE.Color(0xaec7c8);
@@ -252,8 +253,9 @@ function makeBackdrop() {
   }
   const geometry = world.buildOppositeSideGeometry();
   backdrop = new THREE.Mesh(geometry, backdropMaterial);
-  backdrop.name = 'low-detail opposite inner surface';
+  backdrop.name = 'fogged far-surface fallback behind streamed terrain';
   backdrop.frustumCulled = false;
+  backdrop.renderOrder = -1;
   scene.add(backdrop);
 }
 
@@ -891,6 +893,11 @@ function visibleSurfaceS() {
   return world.wrapS(player.s + (player.axisSide ? world.circumference / 2 : 0));
 }
 
+function circumferentialChordDistance(s, referenceS) {
+  const arcDistance = Math.abs(world.shortestDeltaS(s, referenceS));
+  return 2 * world.radius * Math.sin(arcDistance / (2 * world.radius));
+}
+
 function neededChunks() {
   const { chunkSize, circumferenceChunks, axialHalfLength } = world;
   const circumferenceChunkSize = world.circumferentialChunkSize;
@@ -904,21 +911,25 @@ function neededChunks() {
   );
   const radius = world.config.streaming.visualDistanceMeters
     + Math.hypot(circumferenceChunkSize, chunkSize) / 2;
-  const reachS = Math.ceil(radius / circumferenceChunkSize) + 1;
+  // Reach the opposite wall by converting the visual radius to its ring arc.
+  const maximumArcReach = 2 * world.radius * Math.asin(
+    THREE.MathUtils.clamp(radius / (2 * world.radius), 0, 1),
+  );
+  const reachS = Math.ceil(maximumArcReach / circumferenceChunkSize) + 1;
   const reachZ = Math.ceil(radius / chunkSize) + 1;
   const targets = new Map();
   for (let dx = -reachS; dx <= reachS; dx++) {
     const column = mod(circumferenceColumn + dx, circumferenceChunks);
     const centerS = column * circumferenceChunkSize + circumferenceChunkSize / 2;
-      const distanceS = Math.abs(world.shortestDeltaS(centerS, viewS));
+    const chordDistanceS = circumferentialChordDistance(centerS, viewS);
     for (let dz = -reachZ; dz <= reachZ; dz++) {
       const row = axialRow + dz;
       if (row < 0 || row >= axialRows) continue;
       const centerZ = world.chunkStartZ(row) + chunkSize / 2;
       const distanceZ = Math.abs(centerZ - player.z);
-      if (Math.hypot(distanceS, distanceZ) > radius) continue;
+      if (Math.hypot(chordDistanceS, distanceZ) > radius) continue;
       const key = `${column}:${row}`;
-      targets.set(key, { column, row, distance: distanceS * distanceS + distanceZ * distanceZ });
+      targets.set(key, { column, row, distance: chordDistanceS * chordDistanceS + distanceZ * distanceZ });
     }
   }
   return targets;
@@ -938,7 +949,7 @@ function surfaceTileKey(s, z) {
 function chunkDistanceSquared(column, row) {
   const centerS = column * world.circumferentialChunkSize + world.circumferentialChunkSize / 2;
   const centerZ = world.chunkStartZ(row) + world.chunkSize / 2;
-  const distanceS = Math.abs(world.shortestDeltaS(centerS, visibleSurfaceS()));
+  const distanceS = circumferentialChordDistance(centerS, visibleSurfaceS());
   const distanceZ = Math.abs(centerZ - player.z);
   return distanceS * distanceS + distanceZ * distanceZ;
 }
@@ -1429,16 +1440,35 @@ function updateWorldSettingsDirty() {
 }
 
 function findDrySpawn(nextWorld) {
+  const isDry = (s, z) => !nextWorld.isUnderWater(s, z, 4, 4)
+    && !nextWorld.footprintCrossesRiver(s, z, 4, 4);
   const axialReach = Math.min(nextWorld.axialHalfLength * 0.68, 3600);
   for (let index = 0; index < 72; index++) {
     const angle = index * 2.399963229728653;
     const s = nextWorld.wrapS(nextWorld.circumference * 0.5
       + Math.cos(angle) * nextWorld.circumference * 0.39);
     const z = Math.sin(angle) * axialReach;
-    if (!nextWorld.isUnderWater(s, z, 4, 4)
-      && !nextWorld.footprintCrossesRiver(s, z, 4, 4)) return { s, z };
+    if (isDry(s, z)) return { s, z };
   }
-  return { s: nextWorld.circumference * 0.25, z: 0 };
+
+  // The quick spiral normally finds land immediately. Search the complete
+  // seeded surface as a fallback so rare water layouts never use a wet spawn.
+  const rows = Math.ceil(nextWorld.config.surface.axialLengthMeters / nextWorld.chunkSize);
+  const middleRow = Math.floor(rows / 2);
+  for (let offset = 0; offset < rows; offset++) {
+    const rowIndices = offset === 0
+      ? [middleRow]
+      : [middleRow - offset, middleRow + offset];
+    for (const row of rowIndices) {
+      if (row < 0 || row >= rows) continue;
+      const z = nextWorld.chunkStartZ(row) + nextWorld.chunkSize / 2;
+      for (let column = 0; column < nextWorld.circumferenceChunks; column++) {
+        const s = (column + 0.5) * nextWorld.circumferentialChunkSize;
+        if (isDry(s, z)) return { s, z };
+      }
+    }
+  }
+  throw new Error('This seed has no dry spawn area. Reduce water coverage and regenerate.');
 }
 
 async function regenerateWorld() {
@@ -2350,6 +2380,14 @@ async function start() {
     const seed = getSeed(config);
     world = new CylinderWorld(config, seed);
     world.hullRadius = world.hullRadius || world.radius + (world.groundDepth || 500);
+    const spawn = findDrySpawn(world);
+    player.s = spawn.s;
+    player.z = spawn.z;
+    player.elevation = 0;
+    player.verticalVelocity = 0;
+    player.flying = false;
+    player.axisSide = false;
+    player.fallTargetSide = -1;
     document.querySelector('#seed').textContent = `Seed ${seed}`;
     document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m habitat diameter`;
     syncWorldSettingsControls();
