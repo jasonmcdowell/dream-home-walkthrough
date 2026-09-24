@@ -392,6 +392,13 @@ h1, h2, p { margin-top: 0; }
 
 .view-range-label { margin-top: 20px; }
 
+.view-range-note {
+  margin: 8px 0 0;
+  color: #78877d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .speed-range-labels {
   display: flex;
   justify-content: space-between;

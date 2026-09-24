@@ -424,7 +424,10 @@ function addLandmarks() {
 
 function updateLandmarkVisibility() {
   if (!world || !landmarkMeshes.length) return;
-  const range = Number(world.config.streaming.sceneryDistanceMeters ?? 3500);
+  const range = Math.min(
+    Number(world.config.streaming.sceneryDistanceMeters ?? 3500),
+    Number(world.config.streaming.visualDistanceMeters),
+  );
   const centerS = visibleSurfaceS();
   for (const mesh of landmarkMeshes) {
     const landmark = mesh.userData.landmark;
@@ -1489,7 +1492,6 @@ const worldSettingsStatus = document.querySelector('#world-settings-status');
 const regenerateWorldButton = document.querySelector('#regenerate-world');
 const VIEW_RANGE_FOG_NEAR_RATIO = 0.57;
 const VIEW_RANGE_FOG_FAR_RATIO = 1.1;
-const MAX_VIEW_DISTANCE_PERCENT = 200;
 let viewRangeRefreshTimer = 0;
 let worldRegenerationInProgress = false;
 
@@ -1686,9 +1688,8 @@ async function regenerateWorld() {
     diameterMeters * Number(terrainRangeSlider.value) / 100,
   );
   nextConfig.streaming.visualDistanceMeters = terrainRangeMeters;
-  nextConfig.streaming.sceneryDistanceMeters = Math.min(
-    Math.round(diameterMeters * Number(sceneryRangeSlider.value) / 100),
-    terrainRangeMeters,
+  nextConfig.streaming.sceneryDistanceMeters = Math.round(
+    diameterMeters * Number(sceneryRangeSlider.value) / 100,
   );
   nextConfig.streaming.fogNearMeters = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
   nextConfig.streaming.fogFarMeters = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_FAR_RATIO);
@@ -1885,26 +1886,11 @@ function distanceMetersFromPercentage(slider, diameterMeters = selectedDiameterM
   return Math.round(diameterMeters * Number(slider.value) / 100);
 }
 
-function updateSceneryRangeMaximum() {
-  const minimum = Number(sceneryRangeSlider.min) || 10;
-  const sceneryMaximum = Math.max(
-    minimum,
-    Math.min(MAX_VIEW_DISTANCE_PERCENT, Number(terrainRangeSlider.value)),
-  );
-  sceneryRangeSlider.max = String(sceneryMaximum);
-  document.querySelector('#scenery-range-max').textContent = `${sceneryMaximum}%`;
-  if (Number(sceneryRangeSlider.value) > sceneryMaximum) {
-    sceneryRangeSlider.value = String(sceneryMaximum);
-    updateSceneryRange();
-  }
-}
-
 function updateTerrainRange() {
   const terrainPercent = Number(terrainRangeSlider.value);
   const terrainRangeMeters = distanceMetersFromPercentage(terrainRangeSlider);
   terrainRangeValue.value = `${terrainPercent}% · ${terrainRangeMeters.toLocaleString()} m`;
   terrainRangeValue.textContent = terrainRangeValue.value;
-  updateSceneryRangeMaximum();
   if (!world || diameterIsStaged()) return;
 
   world.config.streaming.visualDistanceMeters = terrainRangeMeters;

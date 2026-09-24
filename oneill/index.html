@@ -89,7 +89,8 @@
       <output id="scenery-range-value" for="scenery-range">175% · 3,500 m</output>
     </label>
     <input id="scenery-range" type="range" min="10" max="200" step="5" value="175">
-    <div class="speed-range-labels"><span>10%</span><span id="scenery-range-max">200%</span></div>
+    <div class="speed-range-labels"><span>10%</span><span>200%</span></div>
+    <p class="view-range-note">The sliders are independent. Scenery can only appear over loaded terrain, so set terrain distance at least as far as scenery to use its full range.</p>
     <details id="world-generation-panel" open>
       <summary>Procedural world settings</summary>
       <p class="world-generation-intro">Changes are staged while you explore. Regenerate to rebuild the same seed with these settings.</p>
@@ -193,6 +194,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=diameter-relative-ranges-20260923"></script>
+  <script type="module" src="app.js?v=independent-view-ranges-20260923"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@
     "diameterMeters": 2000,
     "groundDepthMeters": 200,
     "circumferentialChunks": 64,
-    "axialLengthMeters": 12288
+    "axialLengthMeters": 8192
   },
   "streaming": {
     "visualDistanceMeters": 3500,
