@@ -957,6 +957,8 @@ export class CylinderWorld {
     const positions = [];
     const indices = [];
 
+    // Vector3.toArray grows the target array; manually advancing its length
+    // here would leave sparse coordinates that become NaNs in the GPU buffer.
     for (const path of this.riverPaths) {
       const baseVertex = positions.length / 3;
       let intersects = false;
@@ -972,9 +974,7 @@ export class CylinderWorld {
           if (right - left > 0.05) intersects = true;
           const height = this.#riverWaterLevel(path, center, z) + 0.12;
           this.pointAtHeight(left, z, height).position.toArray(positions, positions.length);
-          positions.length += 3;
           this.pointAtHeight(right, z, height).position.toArray(positions, positions.length);
-          positions.length += 3;
         }
       } else {
         const halfWidth = path.width / 2;
@@ -986,9 +986,7 @@ export class CylinderWorld {
           if (upper - lower > 0.05) intersects = true;
           const height = this.#riverWaterLevel(path, s, center) + 0.12;
           this.pointAtHeight(s, lower, height).position.toArray(positions, positions.length);
-          positions.length += 3;
           this.pointAtHeight(s, upper, height).position.toArray(positions, positions.length);
-          positions.length += 3;
         }
       }
       if (!intersects) {
