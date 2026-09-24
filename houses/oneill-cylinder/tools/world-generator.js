@@ -959,14 +959,13 @@ export class CylinderWorld {
     const z0 = this.chunkStartZ(row);
     const rows = 32;
     const largestRiverHalfWidth = Math.max(...this.riverPaths.map(path => path.width / 2));
-    const lakeBodies = this.#allWaterBodies()
-      .filter(body => body.type === 'lake')
+    const standingWaterBodies = this.#allWaterBodies()
+      .filter(body => body.type === 'lake' || body.type === 'sea')
       .filter(body => this.#bodyIntersectsChunk({
         ...body,
         radiusS: body.radiusS + largestRiverHalfWidth,
         radiusZ: body.radiusZ + largestRiverHalfWidth,
       }, s0, z0, sizeS, sizeZ));
-    const subdivisionsPerRow = lakeBodies.length ? 4 : 1;
     const positions = [];
     const indices = [];
 
@@ -974,34 +973,45 @@ export class CylinderWorld {
       const halfWidth = path.width / 2;
       const longitudinal = path.orientation === 'longitudinal';
       const middleS = (s0 + s1) / 2;
-      const sectionAt = progress => {
+      const centerAt = progress => {
         if (longitudinal) {
           const z = z0 + sizeZ * progress / rows;
           const canonicalCenter = this.#longitudinalRiverCenter(path, z);
           const centerS = canonicalCenter
             + Math.round((middleS - canonicalCenter) / this.circumference) * this.circumference;
-          return {
-            s: centerS,
-            z,
-            edge0: THREE.MathUtils.clamp(centerS - halfWidth, s0, s1),
-            edge1: THREE.MathUtils.clamp(centerS + halfWidth, s0, s1),
-            height: this.#riverWaterLevel(path, centerS, z) + 0.12,
-          };
+          return { s: centerS, z };
         }
 
         const s = s0 + sizeS * progress / rows;
-        const centerZ = this.#circumferentialRiverCenter(path, s);
+        return { s, z: this.#circumferentialRiverCenter(path, s) };
+      };
+      const sectionAt = progress => {
+        const { s, z } = centerAt(progress);
         return {
           s,
-          z: centerZ,
-          edge0: THREE.MathUtils.clamp(centerZ - halfWidth, z0, z0 + sizeZ),
-          edge1: THREE.MathUtils.clamp(centerZ + halfWidth, z0, z0 + sizeZ),
-          height: this.#riverWaterLevel(path, s, centerZ) + 0.12,
+          z,
+          edge0: longitudinal
+            ? THREE.MathUtils.clamp(s - halfWidth, s0, s1)
+            : THREE.MathUtils.clamp(z - halfWidth, z0, z0 + sizeZ),
+          edge1: longitudinal
+            ? THREE.MathUtils.clamp(s + halfWidth, s0, s1)
+            : THREE.MathUtils.clamp(z + halfWidth, z0, z0 + sizeZ),
+          height: this.#riverWaterLevel(path, s, z) + 0.12,
         };
       };
-      const lakeOwnsSection = section => lakeBodies.some(body => (
-        this.#ellipseRadius(section.s, section.z, body, halfWidth) <= 1
+      const standingWaterOwnsCenter = center => standingWaterBodies.some(body => (
+        this.#ellipseRadius(center.s, center.z, body, halfWidth) <= 1
       ));
+      let pathMeetsStandingWater = false;
+      if (standingWaterBodies.length) {
+        for (let sample = 0; sample <= rows * 2; sample++) {
+          if (standingWaterOwnsCenter(centerAt(sample / 2))) {
+            pathMeetsStandingWater = true;
+            break;
+          }
+        }
+      }
+      const subdivisionsPerRow = pathMeetsStandingWater ? 4 : 1;
       let activeStrip = [];
       const flushStrip = () => {
         if (activeStrip.length >= 2) {
@@ -1048,19 +1058,24 @@ export class CylinderWorld {
         activeStrip.push({ progress: endProgress, section: end });
       };
 
-      // Lakes own their water surface. Clip each river ribbon at a padded
-      // ellipse boundary so its differently colored mesh cannot overlap the
-      // lake or z-fight against it. Short substeps keep the shoreline cut smooth.
+      // Lakes and the inland sea own their water surfaces. Clip each river
+      // ribbon at padded shorelines so its differently colored mesh cannot
+      // overlap standing water or z-fight against it.
       for (let i = 0; i < rows; i++) {
         for (let substep = 0; substep < subdivisionsPerRow; substep++) {
           const startProgress = i + substep / subdivisionsPerRow;
           const endProgress = i + (substep + 1) / subdivisionsPerRow;
-          const start = sectionAt(startProgress);
-          const end = sectionAt(endProgress);
-          const startOpen = !lakeOwnsSection(start);
-          const endOpen = !lakeOwnsSection(end);
+          const startOpen = !pathMeetsStandingWater
+            || !standingWaterOwnsCenter(centerAt(startProgress));
+          const endOpen = !pathMeetsStandingWater
+            || !standingWaterOwnsCenter(centerAt(endProgress));
           if (startOpen && endOpen) {
-            appendStrip(startProgress, endProgress, start, end);
+            appendStrip(
+              startProgress,
+              endProgress,
+              sectionAt(startProgress),
+              sectionAt(endProgress),
+            );
             continue;
           }
           if (startOpen === endOpen) {
@@ -1072,18 +1087,18 @@ export class CylinderWorld {
           let high = endProgress;
           for (let iteration = 0; iteration < 12; iteration++) {
             const middle = (low + high) / 2;
-            const middleOpen = !lakeOwnsSection(sectionAt(middle));
+            const middleOpen = !standingWaterOwnsCenter(centerAt(middle));
             if (middleOpen === startOpen) low = middle;
             else high = middle;
           }
           const boundaryProgress = (low + high) / 2;
           const boundary = sectionAt(boundaryProgress);
           if (startOpen) {
-            appendStrip(startProgress, boundaryProgress, start, boundary);
+            appendStrip(startProgress, boundaryProgress, sectionAt(startProgress), boundary);
             flushStrip();
           } else {
             flushStrip();
-            appendStrip(boundaryProgress, endProgress, boundary, end);
+            appendStrip(boundaryProgress, endProgress, boundary, sectionAt(endProgress));
           }
         }
       }
