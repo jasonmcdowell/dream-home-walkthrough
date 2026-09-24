@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const PLAYER_COLLISION_RADIUS_M = 0.32;
+const PLAYER_BODY_HEIGHT_M = 1.8288;
 const COLLISION_CELL_SIZE_M = 1.5;
 const HOUSE_SYSTEM_DEFAULTS = { ring_awning: true, door_canopies: false };
 const HOUSE_FOOT = 0.3048;
@@ -79,8 +80,13 @@ function localWallSegments(root) {
       normal.crossVectors(ab, ac);
       if (normal.lengthSq() < 1e-10) continue;
       normal.normalize();
+      const minimumY = Math.min(a.y, b.y, c.y);
+      const maximumY = Math.max(a.y, b.y, c.y);
+      if (maximumY < 0.04 || minimumY > PLAYER_BODY_HEIGHT_M) continue;
       // Floor, roof and other horizontal surfaces do not block walking in the
-      // ground plane. Vertical wall triangles project to short 2D segments.
+      // ground plane. Ignore geometry above the character before projecting
+      // vertical walls; otherwise the wall above a door header closes the
+      // doorway in this 2D floor-plan index.
       if (Math.abs(normal.y) > 0.42) continue;
 
       const candidates = [
