@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createBuildingArchetypeGeometries } from '../houses/oneill-cylinder/tools/asset-kit.js';
 import { createExteriorStructures } from '../houses/oneill-cylinder/tools/exterior-kit.js';
-import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js';
+import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js?v=river-mesh-20260924';
 import {
   loadTorusHomeAssets,
   placeTorusHome,
