@@ -20,6 +20,7 @@
   },
   "landscape": {
     "baseHeightMeters": 0,
+    "terrainVariability": 0.35,
     "groundClampMarginMeters": 24,
     "terrainWarpMeters": 420,
     "continentalReliefMeters": 190,
@@ -54,14 +55,19 @@
     "biomeWarpMeters": 650,
     "zoneCellSizeMeters": 1024,
     "treeDensityPerChunk": 18,
-    "lakeChanceInWetlands": 0.12,
-    "lakeChanceInOtherBiomes": 0.035,
+    "forestCoverage": 0.44,
+    "forestDensity": 0.45,
+    "lakeProbability": 0.04,
+    "farmlandCoverage": 0.28,
     "lakeBasinDepthMeters": 36,
     "lakeWaterLevelOffsetMeters": 28,
     "inlandSeaRadiusSMeters": 1700,
     "inlandSeaRadiusZMeters": 1800,
     "inlandSeaWaterLevelMeters": -30,
     "inlandSeaBasinDepthMeters": 160,
-    "skyscraperMaxHeightMeters": 900
+    "settlementCoverage": 0.22,
+    "cityBuildingDensity": 1.0,
+    "skyscraperMaxHeightMeters": 600,
+    "farSurfaceClarity": 0.72
   }
 }

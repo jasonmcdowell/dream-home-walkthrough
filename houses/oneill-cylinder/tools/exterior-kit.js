@@ -15,6 +15,8 @@ export function createExteriorStructures(THREE, world) {
     : Number(world.radius) + 1000;
   const halfLength = Math.max(100, Number(world.axialHalfLength) || 100);
   const fullLength = halfLength * 2;
+  const angularSegments = THREE.MathUtils.clamp(Math.round((TAU * hullRadius) / 66), 96, 512);
+  const ribCount = THREE.MathUtils.clamp(Math.round((TAU * hullRadius) / 400), 16, 96);
   const group = new THREE.Group();
   group.name = 'O’Neill outer pressure hull and end-cap structure';
   group.userData.hullRadius = hullRadius;
@@ -62,7 +64,7 @@ export function createExteriorStructures(THREE, world) {
     hullRadius,
     hullRadius,
     fullLength,
-    192,
+    angularSegments,
     1,
     true,
   ));
@@ -79,12 +81,12 @@ export function createExteriorStructures(THREE, world) {
   // the double-width band and fine raised line make them legible at scale.
   const bandSpacing = 620;
   const bandCount = Math.max(2, Math.floor((fullLength - 380) / bandSpacing));
-  const bandGeometry = ownGeometry(new THREE.TorusGeometry(hullRadius + 7, 11, 8, 192));
+  const bandGeometry = ownGeometry(new THREE.TorusGeometry(hullRadius + 7, 11, 8, angularSegments));
   const bandInstances = new THREE.InstancedMesh(bandGeometry, brightBandMaterial, bandCount);
   bandInstances.name = 'widely spaced circumferential pressure bands';
   bandInstances.castShadow = false;
   bandInstances.receiveShadow = false;
-  const bandFineGeometry = ownGeometry(new THREE.TorusGeometry(hullRadius + 18, 2.5, 6, 192));
+  const bandFineGeometry = ownGeometry(new THREE.TorusGeometry(hullRadius + 18, 2.5, 6, angularSegments));
   const bandFineInstances = new THREE.InstancedMesh(bandFineGeometry, darkFrameMaterial, bandCount);
   bandFineInstances.name = 'raised band seam lines';
   const bandDummy = new THREE.Object3D();
@@ -101,9 +103,7 @@ export function createExteriorStructures(THREE, world) {
   bandFineInstances.instanceMatrix.needsUpdate = true;
   frames.add(bandInstances, bandFineInstances);
 
-  // Axial rails use one shared box and per-instance radial/tangential bases.
-  // Thirty two rails make the hull read as a built structure without a dense cage.
-  const ribCount = 32;
+  // Axial rails keep roughly the same physical spacing as the hull grows.
   const ribGeometry = ownGeometry(new THREE.BoxGeometry(15, 19, fullLength));
   const ribs = new THREE.InstancedMesh(ribGeometry, darkFrameMaterial, ribCount);
   ribs.name = 'long axial hull ribs';
@@ -134,7 +134,7 @@ export function createExteriorStructures(THREE, world) {
   group.add(endcaps);
 
   const outerRim = new THREE.InstancedMesh(
-    ownGeometry(new THREE.TorusGeometry(hullRadius - 24, 25, 10, 192)),
+    ownGeometry(new THREE.TorusGeometry(hullRadius - 24, 25, 10, angularSegments)),
     brightBandMaterial,
     2,
   );
@@ -156,7 +156,7 @@ export function createExteriorStructures(THREE, world) {
     { inner: 82, outer: 116, mat: supportMaterial, offset: 5 },
   ];
   for (const [layerIndex, layer] of capLayerSpecs.entries()) {
-    const diskGeometry = ownGeometry(new THREE.RingGeometry(layer.inner, layer.outer, 192));
+    const diskGeometry = ownGeometry(new THREE.RingGeometry(layer.inner, layer.outer, angularSegments));
     const disks = new THREE.InstancedMesh(diskGeometry, layer.mat, 2);
     disks.name = `annular end-cap layer ${layerIndex + 1}`;
     for (let index = 0; index < 2; index++) {
@@ -199,7 +199,7 @@ export function createExteriorStructures(THREE, world) {
   spokes.instanceMatrix.needsUpdate = true;
   endcaps.add(spokes);
 
-  const capBraceGeometry = ownGeometry(new THREE.TorusGeometry(hullRadius * 0.7, 8, 6, 192));
+  const capBraceGeometry = ownGeometry(new THREE.TorusGeometry(hullRadius * 0.7, 8, 6, angularSegments));
   const capBraces = new THREE.InstancedMesh(capBraceGeometry, darkFrameMaterial, 2);
   capBraces.name = 'mid-radius end-cap truss braces';
   for (let index = 0; index < 2; index++) {

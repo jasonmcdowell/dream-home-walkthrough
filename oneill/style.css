@@ -379,6 +379,83 @@ h1, h2, p { margin-top: 0; }
   font-variant-numeric: tabular-nums;
 }
 
+#world-generation-panel {
+  margin-top: 22px;
+  padding-top: 15px;
+  border-top: 1px solid #dce4d9;
+}
+
+#world-generation-panel summary {
+  color: #34493e;
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.world-generation-intro {
+  margin: 9px 0 16px;
+  color: #78877d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.world-settings-grid {
+  display: grid;
+  gap: 15px;
+}
+
+.world-setting {
+  display: grid;
+  gap: 5px;
+  color: #34493e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.world-setting > span:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.world-setting output {
+  color: #587755;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.world-setting input {
+  width: 100%;
+  margin: 3px 0 0;
+  accent-color: #597a59;
+  cursor: pointer;
+}
+
+#world-settings-status {
+  margin: 16px 0 8px;
+  color: #6b7b71;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+#regenerate-world {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #547153;
+  border-radius: 10px;
+  background: #597a59;
+  color: #f5f7ef;
+  font: 750 12px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+#regenerate-world:disabled {
+  border-color: #c6d0c4;
+  background: #dfe6db;
+  color: #829081;
+  cursor: default;
+}
+
 .movement-guide {
   display: grid;
   gap: 0;
@@ -419,6 +496,7 @@ h1, h2, p { margin-top: 0; }
 
 #loading {
   position: fixed;
+  z-index: 10;
   inset: 0;
   display: grid;
   place-items: center;

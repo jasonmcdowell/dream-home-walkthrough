@@ -147,18 +147,24 @@ export class CylinderWorld {
     return lerp(a, b, tz) * 2 - 1;
   }
 
+  #terrainVariability() {
+    const value = Number(this.config.landscape.terrainVariability ?? 0.35);
+    return THREE.MathUtils.clamp(Number.isFinite(value) ? value : 0.35, 0, 1.5);
+  }
+
   #naturalTerrainHeight(s, z) {
     const landscape = this.config.landscape;
+    const variability = this.#terrainVariability();
     const macroScale = Math.max(1800, this.circumference * 0.36);
     const warp = Math.max(0, Number(landscape.terrainWarpMeters) || 620);
     const warpedS = s + this.#noise(s, z, macroScale * 0.5, 8) * warp;
     const warpedZ = z + this.#noise(s, z, macroScale * 0.5, 9) * warp;
     let height = this.baseHeight
-      + this.#noise(warpedS, warpedZ, macroScale, 10) * (Number(landscape.continentalReliefMeters) || 360)
-      + this.#noise(warpedS, warpedZ, macroScale * 0.4, 11) * (Number(landscape.regionalReliefMeters) || 230)
-      + this.#noise(warpedS, warpedZ, macroScale * 0.13, 12) * (Number(landscape.hillReliefMeters) || 95)
-      + this.#noise(warpedS, warpedZ, macroScale * 0.045, 13) * (Number(landscape.detailReliefMeters) || 42)
-      + this.#noise(warpedS, warpedZ, macroScale * 0.016, 14) * 18;
+      + this.#noise(warpedS, warpedZ, macroScale, 10) * (Number(landscape.continentalReliefMeters) || 360) * variability
+      + this.#noise(warpedS, warpedZ, macroScale * 0.4, 11) * (Number(landscape.regionalReliefMeters) || 230) * variability
+      + this.#noise(warpedS, warpedZ, macroScale * 0.13, 12) * (Number(landscape.hillReliefMeters) || 95) * variability
+      + this.#noise(warpedS, warpedZ, macroScale * 0.045, 13) * (Number(landscape.detailReliefMeters) || 42) * variability
+      + this.#noise(warpedS, warpedZ, macroScale * 0.016, 14) * 18 * variability;
 
     const beltScale = Math.max(2600, Number(landscape.mountainBeltScaleMeters) || this.circumference * 0.36);
     const beltAxisS = warpedS + warpedZ * 0.31;
@@ -169,18 +175,18 @@ export class CylinderWorld {
     const ridgeNoise = this.#noise(warpedS, warpedZ, beltScale * 0.23, 22);
     const ridge = 1 - Math.abs(ridgeNoise);
     height += mountainMask * (
-      (Number(landscape.mountainReliefMeters) || 420) * 0.34
-      + ridge * ridge * (Number(landscape.ridgeReliefMeters) || 360)
+      (Number(landscape.mountainReliefMeters) || 420) * 0.34 * variability
+      + ridge * ridge * (Number(landscape.ridgeReliefMeters) || 360) * variability
     );
 
     const plateauScale = Math.max(2200, Number(landscape.plateauScaleMeters) || this.circumference * 0.3);
     const plateauField = this.#noise(warpedS + warpedZ * 0.22, warpedZ, plateauScale, 23);
     const plateau = smoothstep(-0.035, 0.035, plateauField);
-    height += (plateau - 0.5) * (Number(landscape.plateauReliefMeters) || 210);
+    height += (plateau - 0.5) * (Number(landscape.plateauReliefMeters) || 210) * variability;
 
     const basinField = this.#noise(warpedS - warpedZ * 0.19, warpedZ + warpedS * 0.12, macroScale * 1.12, 24);
     const basinMask = 1 - smoothstep(-0.52, -0.08, basinField);
-    height -= basinMask * (Number(landscape.lowBasinDepthMeters) || 220);
+    height -= basinMask * (Number(landscape.lowBasinDepthMeters) || 220) * variability;
     return height;
   }
 
@@ -230,10 +236,18 @@ export class CylinderWorld {
     const moisture = this.#noise(warpedS + scale * 0.17, warpedZ - scale * 0.11, scale * 0.72, 67) * 0.68
       + this.#noise(warpedS - scale * 0.09, warpedZ + scale * 0.2, scale * 0.34, 68) * 0.32;
 
-    if (height > this.baseHeight + (Number(landscape.highlandsThresholdMeters) || 450) + regionalShape * 120) return 'highlands';
+    const reliefScale = Math.max(0.2, this.#terrainVariability());
+    if (height > this.baseHeight
+      + (Number(landscape.highlandsThresholdMeters) || 450) * reliefScale
+      + regionalShape * 120 * reliefScale) return 'highlands';
     if (moisture > 0.43 && regionalShape < 0.55) return 'wetland';
     if (moisture < -0.38) return 'dryland';
-    return regionalShape > 0.12 ? 'forest' : 'grassland';
+    const forestCoverage = THREE.MathUtils.clamp(
+      Number(landscape.forestCoverage ?? 0.44),
+      0,
+      1,
+    );
+    return regionalShape > 0.55 - forestCoverage ? 'forest' : 'grassland';
   }
 
   biomeAt(s, z) {
@@ -249,7 +263,8 @@ export class CylinderWorld {
     const paths = [];
     const baseWidth = Math.max(8, Number(landscape.riverWidthMeters) || 28);
     const baseBank = Math.max(4, Number(landscape.riverBankMeters) || 44);
-    const bedDepth = Math.max(4, Number(landscape.riverBedDepthMeters) || 14);
+    const bedDepth = Math.max(4, Number(landscape.riverBedDepthMeters) || 14)
+      * Math.max(0.2, this.#terrainVariability());
     const longWidth = Math.max(8, Number(network.longitudinalWidthMeters) || baseWidth);
     const ringWidth = Math.max(8, Number(network.circumferentialWidthMeters) || Math.min(baseWidth, 22));
     const longBank = Math.max(4, Number(network.longitudinalBankMeters) || baseBank);
@@ -315,8 +330,13 @@ export class CylinderWorld {
   #createWaterfalls() {
     const landscape = this.config.landscape;
     const spacing = Math.max(800, Number(landscape.waterfallSpacingMeters) || 3200);
-    const minimumDrop = Math.max(20, Number(landscape.waterfallMinDropMeters) || 45);
-    const maximumDrop = Math.max(minimumDrop, Number(landscape.waterfallMaxDropMeters) || 180);
+    const reliefScale = Math.max(0.2, this.#terrainVariability());
+    const rawMinimumDrop = Math.max(20, Number(landscape.waterfallMinDropMeters) || 45);
+    const minimumDrop = rawMinimumDrop * reliefScale;
+    const maximumDrop = Math.max(
+      rawMinimumDrop,
+      Number(landscape.waterfallMaxDropMeters) || 180,
+    ) * reliefScale;
     const features = [];
     for (const path of this.riverPaths) {
       const pathLength = path.orientation === 'longitudinal'
@@ -509,11 +529,23 @@ export class CylinderWorld {
     const key = `${wrappedColumn}:${boundedRow}`;
     if (this.zoneCache.has(key)) return this.zoneCache.get(key);
     const roll = hash01(this.seed, wrappedColumn, boundedRow, 1100);
+    const settlementCoverage = THREE.MathUtils.clamp(
+      Number(this.config.landscape.settlementCoverage ?? 0.22),
+      0,
+      0.5,
+    );
+    const largeCityShare = settlementCoverage * (0.03 / 0.22);
+    const smallCityShare = settlementCoverage * (0.07 / 0.22);
+    const farmlandCoverage = THREE.MathUtils.clamp(
+      Number(this.config.landscape.farmlandCoverage ?? 0.28),
+      0,
+      0.7,
+    );
     let type = 'wilderness';
-    if (roll < 0.03) type = 'largeCity';
-    else if (roll < 0.1) type = 'smallCity';
-    else if (roll < 0.22) type = 'village';
-    else if (roll < 0.5) type = 'farmland';
+    if (roll < largeCityShare) type = 'largeCity';
+    else if (roll < largeCityShare + smallCityShare) type = 'smallCity';
+    else if (roll < settlementCoverage) type = 'village';
+    else if (roll < Math.min(1, settlementCoverage + farmlandCoverage)) type = 'farmland';
     const centerS = (wrappedColumn + 0.5) * this.zoneSizeS;
     const centerZ = -this.axialHalfLength + (boundedRow + 0.5) * this.zoneSizeZ;
     const biome = this.#biomeAt(centerS, centerZ, this.baseTerrainHeight(centerS, centerZ));
@@ -521,9 +553,12 @@ export class CylinderWorld {
     // Water placement follows terrain and biome, independent of land-use zoning.
     // Wetlands get more lakes, but cities and farms can also contain water; their
     // scenery placement checks remove dry-land assets from those wet footprints.
-    const lakeChance = biome === 'wetland'
-      ? (Number(this.config.landscape.lakeChanceInWetlands) || 0.12)
-      : (Number(this.config.landscape.lakeChanceInOtherBiomes) || 0.035);
+    const baseLakeChance = THREE.MathUtils.clamp(
+      Number(this.config.landscape.lakeProbability ?? 0.04),
+      0,
+      0.2,
+    );
+    const lakeChance = Math.min(0.6, baseLakeChance * (biome === 'wetland' ? 2.8 : 0.82));
     const zone = {
       column: wrappedColumn,
       row: boundedRow,
@@ -805,25 +840,67 @@ export class CylinderWorld {
     const s0 = column * sizeS;
     const z0 = this.chunkStartZ(row);
     const side = segments + 1;
+    const heightSide = segments + 3;
+    const heightGrid = new Float32Array(heightSide * heightSide);
     const positions = new Float32Array(side * side * 3);
     const colors = new Float32Array(side * side * 3);
+    const normals = new Float32Array(side * side * 3);
     const indices = new Uint32Array(segments * segments * 6);
-    let vertex = 0;
-    for (let iz = 0; iz <= segments; iz++) {
+    for (let iz = -1; iz <= segments + 1; iz++) {
       const z = z0 + sizeZ * iz / segments;
-      for (let is = 0; is <= segments; is++) {
+      for (let is = -1; is <= segments + 1; is++) {
         const s = s0 + sizeS * is / segments;
-        const riverMetrics = this.#riverMetrics(s, z);
+        const riverMetrics = is >= 0 && is <= segments && iz >= 0 && iz <= segments
+          ? this.#riverMetrics(s, z)
+          : null;
         const height = this.terrainHeight(s, z, riverMetrics);
+        heightGrid[(iz + 1) * heightSide + is + 1] = height;
+        if (!riverMetrics) continue;
+
+        const vertex = iz * side + is;
         const theta = this.wrapS(s) / this.radius;
         const radialDistance = this.radius - height;
         positions[vertex * 3] = radialDistance * Math.cos(theta);
         positions[vertex * 3 + 1] = radialDistance * Math.sin(theta);
         positions[vertex * 3 + 2] = z;
         this.#terrainColor(s, z, height, riverMetrics).toArray(colors, vertex * 3);
-        vertex++;
       }
     }
+
+    const tangentS = new THREE.Vector3();
+    const tangentZ = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    const stepS = sizeS / segments;
+    const stepZ = sizeZ / segments;
+    for (let iz = 0; iz <= segments; iz++) {
+      const z = z0 + sizeZ * iz / segments;
+      for (let is = 0; is <= segments; is++) {
+        const s = s0 + sizeS * is / segments;
+        const vertex = iz * side + is;
+        const height = heightGrid[(iz + 1) * heightSide + is + 1];
+        const heightS = (
+          heightGrid[(iz + 1) * heightSide + is + 2]
+          - heightGrid[(iz + 1) * heightSide + is]
+        ) / (2 * stepS);
+        const heightZ = (
+          heightGrid[(iz + 2) * heightSide + is + 1]
+          - heightGrid[iz * heightSide + is + 1]
+        ) / (2 * stepZ);
+        const theta = this.wrapS(s) / this.radius;
+        const cosTheta = Math.cos(theta);
+        const sinTheta = Math.sin(theta);
+        const radialDistance = this.radius - height;
+        tangentS.set(
+          -heightS * cosTheta - radialDistance * sinTheta / this.radius,
+          -heightS * sinTheta + radialDistance * cosTheta / this.radius,
+          0,
+        );
+        tangentZ.set(-heightZ * cosTheta, -heightZ * sinTheta, 1);
+        normal.crossVectors(tangentZ, tangentS).normalize();
+        normal.toArray(normals, vertex * 3);
+      }
+    }
+
     let index = 0;
     for (let iz = 0; iz < segments; iz++) {
       for (let is = 0; is < segments; is++) {
@@ -842,8 +919,8 @@ export class CylinderWorld {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
     return geometry;
   }
@@ -932,7 +1009,8 @@ export class CylinderWorld {
     const roads = [];
     const farmland = [];
 
-    const baseTreeCount = Math.max(0, Number(this.config.landscape.treeDensityPerChunk) || 24);
+    const baseTreeCount = Math.max(0, Number(this.config.landscape.treeDensityPerChunk) || 24)
+      * THREE.MathUtils.clamp(Number(this.config.landscape.forestDensity ?? 0.45), 0, 2);
     const biomeTreeMultiplier = {
       forest: 1.5,
       grassland: 0.62,
@@ -1009,7 +1087,15 @@ export class CylinderWorld {
         largeCity: [7, 11],
       }[zone.type];
       const range = targetRange[1] - targetRange[0] + 1;
-      const targetCount = targetRange[0] + Math.floor(hash01(this.seed, column, row, 1300) * range);
+      const buildingDensity = THREE.MathUtils.clamp(
+        Number(this.config.landscape.cityBuildingDensity ?? 1),
+        0,
+        2,
+      );
+      const targetCount = Math.round(
+        (targetRange[0] + Math.floor(hash01(this.seed, column, row, 1300) * range))
+        * buildingDensity,
+      );
 
       const targetRoadSpacing = { village: 160, smallCity: 120, largeCity: 80 }[zone.type];
       const sRoadCount = Math.max(2, Math.round(this.circumference / targetRoadSpacing));
@@ -1085,14 +1171,14 @@ export class CylinderWorld {
         placed++;
       }
 
-      if (zone.type === 'largeCity' && hash01(this.seed, column, row, 1450) < 0.006) {
+      if (zone.type === 'largeCity' && hash01(this.seed, column, row, 1450) < 0.006 * buildingDensity) {
         const localS = sizeS * (0.3 + hash01(this.seed, column, row, 1451) * 0.4);
         const localZ = sizeZ * (0.3 + hash01(this.seed, column, row, 1452) * 0.4);
         const s = s0 + localS;
         const z = z0 + localZ;
         const requestedHeight = 100 + hash01(this.seed, column, row, 1455) * Math.max(
           0,
-          (Number(this.config.landscape.skyscraperMaxHeightMeters) || 900) - 100,
+          (Number(this.config.landscape.skyscraperMaxHeightMeters) || 600) - 100,
         );
         const height = Math.min(
           requestedHeight,
@@ -1249,49 +1335,36 @@ export class CylinderWorld {
     return roads;
   }
 
-  buildOppositeSideGeometry(centerS, centerZ, visualDistance = this.config.streaming.visualDistanceMeters) {
-    const sizeS = this.circumferentialChunkSize;
-    const sizeZ = this.chunkSize;
-    const range = Math.max(0, Number(visualDistance) || 0);
-    const loadedRadius = range + Math.hypot(sizeS, sizeZ) / 2;
-    const seamMargin = sizeS / 2 + 8;
-    const insetS = Math.min(
-      this.circumference / 2 - 12,
-      loadedRadius + seamMargin,
-    );
-    const spanS = Math.max(24, this.circumference - insetS * 2);
-    const startS = centerS + insetS;
+  buildOppositeSideGeometry() {
+    const spacing = 64;
+    const segmentsS = Math.max(48, Math.ceil(this.circumference / spacing));
     const axialLength = this.config.surface.axialLengthMeters;
-    const spanZ = Math.min(
-      axialLength,
-      Math.max(3072, range * 2 + sizeZ * 2),
-    );
-    const spacing = 16;
-    const segmentsS = Math.max(8, Math.ceil(spanS / spacing));
-    const segmentsZ = Math.max(8, Math.ceil(spanZ / spacing));
+    const segmentsZ = Math.max(32, Math.ceil(axialLength / spacing));
     const side = segmentsS + 1;
-    const startZ = THREE.MathUtils.clamp(
-      centerZ - spanZ / 2,
-      -this.axialHalfLength,
-      this.axialHalfLength - spanZ,
-    );
     const positions = new Float32Array((segmentsS + 1) * (segmentsZ + 1) * 3);
     const colors = new Float32Array(positions.length);
     const indices = new Uint32Array(segmentsS * segmentsZ * 6);
+    const backdropOffset = Math.max(3, this.groundDepth * 0.02);
+    const requestedClarity = Number(this.config.landscape.farSurfaceClarity ?? 0.72);
+    const farSurfaceClarity = THREE.MathUtils.clamp(
+      Number.isFinite(requestedClarity) ? requestedClarity : 0.72,
+      0,
+      1,
+    );
     let vertex = 0;
     for (let iz = 0; iz <= segmentsZ; iz++) {
-      const z = startZ + spanZ * iz / segmentsZ;
+      const z = -this.axialHalfLength + axialLength * iz / segmentsZ;
       for (let is = 0; is <= segmentsS; is++) {
-        const s = startS + spanS * is / segmentsS;
+        const s = this.circumference * is / segmentsS;
         const riverMetrics = this.#riverMetrics(s, z);
         const height = this.terrainHeight(s, z, riverMetrics);
         const theta = this.wrapS(s) / this.radius;
-        const radialDistance = this.radius - height;
+        const radialDistance = this.radius - height + backdropOffset;
         positions[vertex * 3] = radialDistance * Math.cos(theta);
         positions[vertex * 3 + 1] = radialDistance * Math.sin(theta);
         positions[vertex * 3 + 2] = z;
         this.#terrainColor(s, z, height, riverMetrics)
-          .lerp(DISTANT_SKY_COLOR, 0.54)
+          .lerp(DISTANT_SKY_COLOR, 1 - farSurfaceClarity)
           .toArray(colors, vertex * 3);
         vertex++;
       }

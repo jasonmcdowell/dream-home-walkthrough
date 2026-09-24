@@ -83,6 +83,89 @@
     </label>
     <input id="scenery-range" type="range" min="200" max="1600" step="50" value="800">
     <div class="speed-range-labels"><span>200 m</span><span id="scenery-range-max">1,600 m</span></div>
+    <details id="world-generation-panel" open>
+      <summary>Procedural world settings</summary>
+      <p class="world-generation-intro">Changes are staged while you explore. Regenerate to rebuild the same seed with these settings.</p>
+      <div class="world-settings-grid">
+        <label class="world-setting" for="world-diameter">
+          <span>Habitat diameter <output for="world-diameter">3 km</output></span>
+          <input id="world-diameter" data-world-setting="surface.diameterMeters" data-format="kilometers" type="range" min="1000" max="10000" step="500" value="3000">
+          <span class="speed-range-labels"><span>1 km</span><span>10 km</span></span>
+        </label>
+        <label class="world-setting" for="world-soil-depth">
+          <span>Soil layer depth <output for="world-soil-depth">500 m</output></span>
+          <input id="world-soil-depth" data-world-setting="surface.groundDepthMeters" data-format="meters" type="range" min="100" max="1000" step="50" value="500">
+          <span class="speed-range-labels"><span>100 m</span><span>1,000 m</span></span>
+        </label>
+        <label class="world-setting" for="world-relief">
+          <span>Terrain variation <output for="world-relief">35%</output></span>
+          <input id="world-relief" data-world-setting="landscape.terrainVariability" data-format="percent" type="range" min="0" max="1.5" step="0.05" value="0.35">
+          <span class="speed-range-labels"><span>Flat</span><span>Mountainous</span></span>
+        </label>
+        <label class="world-setting" for="world-detail">
+          <span>Terrain mesh detail <output for="world-detail">20 segments</output></span>
+          <input id="world-detail" data-world-setting="streaming.terrainSegments" data-format="segments" type="range" min="8" max="32" step="4" value="20">
+          <span class="speed-range-labels"><span>Faster</span><span>Smoother</span></span>
+        </label>
+        <label class="world-setting" for="world-biomes">
+          <span>Biome region size <output for="world-biomes">3 km</output></span>
+          <input id="world-biomes" data-world-setting="landscape.biomeScaleMeters" data-format="kilometers" type="range" min="500" max="8000" step="500" value="3000">
+          <span class="speed-range-labels"><span>Small regions</span><span>Large regions</span></span>
+        </label>
+        <label class="world-setting" for="world-forest-coverage">
+          <span>Forest biome coverage <output for="world-forest-coverage">44%</output></span>
+          <input id="world-forest-coverage" data-world-setting="landscape.forestCoverage" data-format="percent" type="range" min="0" max="1" step="0.01" value="0.44">
+          <span class="speed-range-labels"><span>Rare forests</span><span>Widespread</span></span>
+        </label>
+        <label class="world-setting" for="world-forest">
+          <span>Vegetation density <output for="world-forest">45%</output></span>
+          <input id="world-forest" data-world-setting="landscape.forestDensity" data-format="percent" type="range" min="0" max="1.5" step="0.05" value="0.45">
+          <span class="speed-range-labels"><span>None</span><span>Dense</span></span>
+        </label>
+        <label class="world-setting" for="world-lakes">
+          <span>Lake probability <output for="world-lakes">4%</output></span>
+          <input id="world-lakes" data-world-setting="landscape.lakeProbability" data-format="percent" type="range" min="0" max="0.2" step="0.01" value="0.04">
+          <span class="speed-range-labels"><span>None</span><span>Frequent</span></span>
+        </label>
+        <label class="world-setting" for="world-rivers-axial">
+          <span>Axial rivers <output for="world-rivers-axial">2 rivers</output></span>
+          <input id="world-rivers-axial" data-world-setting="landscape.riverNetwork.longitudinalCount" data-format="rivers" type="range" min="0" max="4" step="1" value="2">
+          <span class="speed-range-labels"><span>None</span><span>4 rivers</span></span>
+        </label>
+        <label class="world-setting" for="world-rivers-ring">
+          <span>Spinward rivers <output for="world-rivers-ring">2 rivers</output></span>
+          <input id="world-rivers-ring" data-world-setting="landscape.riverNetwork.circumferentialCount" data-format="rivers" type="range" min="0" max="4" step="1" value="2">
+          <span class="speed-range-labels"><span>None</span><span>4 rivers</span></span>
+        </label>
+        <label class="world-setting" for="world-cities">
+          <span>Settlement coverage <output for="world-cities">22%</output></span>
+          <input id="world-cities" data-world-setting="landscape.settlementCoverage" data-format="percent" type="range" min="0" max="0.5" step="0.01" value="0.22">
+          <span class="speed-range-labels"><span>Wilderness</span><span>Many towns</span></span>
+        </label>
+        <label class="world-setting" for="world-farmland">
+          <span>Farmland coverage <output for="world-farmland">28%</output></span>
+          <input id="world-farmland" data-world-setting="landscape.farmlandCoverage" data-format="percent" type="range" min="0" max="0.6" step="0.01" value="0.28">
+          <span class="speed-range-labels"><span>None</span><span>Extensive</span></span>
+        </label>
+        <label class="world-setting" for="world-city-density">
+          <span>City building density <output for="world-city-density">100%</output></span>
+          <input id="world-city-density" data-world-setting="landscape.cityBuildingDensity" data-format="percent" type="range" min="0" max="2" step="0.05" value="1">
+          <span class="speed-range-labels"><span>Sparse</span><span>Dense</span></span>
+        </label>
+        <label class="world-setting" for="world-skyscrapers">
+          <span>Tallest skyscraper <output for="world-skyscrapers">600 m</output></span>
+          <input id="world-skyscrapers" data-world-setting="landscape.skyscraperMaxHeightMeters" data-format="meters" type="range" min="100" max="900" step="25" value="600">
+          <span class="speed-range-labels"><span>100 m</span><span>900 m</span></span>
+        </label>
+        <label class="world-setting" for="world-farside">
+          <span>Far-side ground clarity <output for="world-farside">72%</output></span>
+          <input id="world-farside" data-world-setting="landscape.farSurfaceClarity" data-format="percent" type="range" min="0" max="1" step="0.01" value="0.72">
+          <span class="speed-range-labels"><span>Sky tinted</span><span>Clear ground</span></span>
+        </label>
+      </div>
+      <p id="world-settings-status" aria-live="polite">Settings match the current world.</p>
+      <button id="regenerate-world" type="button" disabled>Regenerate seeded world</button>
+    </details>
     <dl class="movement-guide">
       <div><dt>H / R1 / Options</dt><dd>Show or hide this panel</dd></div>
       <div><dt>Shift / L3</dt><dd>Hold to run</dd></div>
