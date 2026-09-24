@@ -198,10 +198,14 @@ const ROOF_COLLISION_AZIMUTH_SEGMENTS = 120;
 const ROOF_COLLISION_PROFILE_SEGMENTS = 24;
 const MOBILE_SHELL_AZIMUTH_SEGMENTS = 64;
 const MOBILE_SHELL_PROFILE_SEGMENTS = 10;
-const MOBILE_FLOOR_SEGMENTS = 96;
+const MOBILE_FLOOR_SEGMENTS = 16;
 const MOBILE_GARDEN_DOOR_ANGLES = [351, 189].map(angle => THREE.MathUtils.degToRad(angle));
 const MOBILE_GARDEN_DOOR_HALF_WIDTH = THREE.MathUtils.degToRad(14);
 const MOBILE_GARDEN_DOOR_PROFILE_START = Math.PI - Math.asin((8 * FT) / (15 * FT));
+const MOBILE_EXTERIOR_DOOR_ANGLES = [0, 180].map(angle => THREE.MathUtils.degToRad(angle));
+const MOBILE_EXTERIOR_DOOR_HALF_WIDTH = THREE.MathUtils.degToRad(4);
+const MOBILE_EXTERIOR_DOOR_PROFILE_END = Math.asin((8 * FT) / (15 * FT));
+const MOBILE_PROPERTY_HALF_EXTENT = Math.sqrt(43560) / 2 * FT;
 const roofCutawayPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), ROOF_CUTAWAY_HEIGHT);
 let collisionProfile = mobileLike ? 'mobile shell + floor' : 'low-poly exported collision model';
 
@@ -1671,12 +1675,14 @@ function createTorusCollisionProxy(
     for (let profile = 0; profile < profileSegments; profile++) {
       const theta = firstProfileAngle
         + (lastProfileAngle - firstProfileAngle) * (profile + 0.5) / profileSegments;
-      const opening = openings.some(({ azimuth: openingAzimuth, halfWidth, profileStart }) => {
+      const opening = openings.some(({ azimuth: openingAzimuth, halfWidth, profileStart, profileEnd }) => {
         const distance = Math.abs(Math.atan2(
           Math.sin(azimuthMidpoint - openingAzimuth),
           Math.cos(azimuthMidpoint - openingAzimuth),
         ));
-        return distance <= halfWidth && theta >= profileStart;
+        return distance <= halfWidth
+          && (profileStart == null || theta >= profileStart)
+          && (profileEnd == null || theta <= profileEnd);
       });
       if (opening) continue;
       const a = azimuth * profileVertices + profile;
@@ -1716,15 +1722,28 @@ function createSimplifiedRoofCollisionProxy() {
 }
 
 function createMobileFloorCollisionProxy() {
-  const radius = 52 * FT;
-  const positions = [0, 0, 0];
+  // Match the modeled one-acre outdoor property. A smaller circle ended at
+  // the outer walkway, leaving the orchard with visible ground but no collider.
+  const extent = MOBILE_PROPERTY_HALF_EXTENT;
+  const side = MOBILE_FLOOR_SEGMENTS + 1;
+  const positions = [];
   const indices = [];
-  for (let segment = 0; segment <= MOBILE_FLOOR_SEGMENTS; segment++) {
-    const phi = segment / MOBILE_FLOOR_SEGMENTS * Math.PI * 2;
-    positions.push(radius * Math.cos(phi), 0, -radius * Math.sin(phi));
+  for (let row = 0; row <= MOBILE_FLOOR_SEGMENTS; row++) {
+    const z = -extent + 2 * extent * row / MOBILE_FLOOR_SEGMENTS;
+    for (let column = 0; column <= MOBILE_FLOOR_SEGMENTS; column++) {
+      const x = -extent + 2 * extent * column / MOBILE_FLOOR_SEGMENTS;
+      positions.push(x, 0, z);
+    }
   }
-  for (let segment = 0; segment < MOBILE_FLOOR_SEGMENTS; segment++) {
-    indices.push(0, segment + 1, segment + 2);
+  for (let row = 0; row < MOBILE_FLOOR_SEGMENTS; row++) {
+    for (let column = 0; column < MOBILE_FLOOR_SEGMENTS; column++) {
+      const a = row * side + column;
+      const b = a + 1;
+      const d = a + side;
+      const c = d + 1;
+      // Upward-facing winding for one-sided capsule/triangle collision.
+      indices.push(a, c, b, a, d, c);
+    }
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -1801,11 +1820,18 @@ async function buildMobileCollisionWorld() {
     Math.PI,
     MOBILE_SHELL_AZIMUTH_SEGMENTS,
     MOBILE_SHELL_PROFILE_SEGMENTS,
-    MOBILE_GARDEN_DOOR_ANGLES.map(azimuth => ({
-      azimuth,
-      halfWidth: MOBILE_GARDEN_DOOR_HALF_WIDTH,
-      profileStart: MOBILE_GARDEN_DOOR_PROFILE_START,
-    })),
+    [
+      ...MOBILE_EXTERIOR_DOOR_ANGLES.map(azimuth => ({
+        azimuth,
+        halfWidth: MOBILE_EXTERIOR_DOOR_HALF_WIDTH,
+        profileEnd: MOBILE_EXTERIOR_DOOR_PROFILE_END,
+      })),
+      ...MOBILE_GARDEN_DOOR_ANGLES.map(azimuth => ({
+        azimuth,
+        halfWidth: MOBILE_GARDEN_DOOR_HALF_WIDTH,
+        profileStart: MOBILE_GARDEN_DOOR_PROFILE_START,
+      })),
+    ],
   );
   const floorCount = addMeshTrianglesToCollisionTree(world, floor);
   const shellCount = addMeshTrianglesToCollisionTree(world, shell);
