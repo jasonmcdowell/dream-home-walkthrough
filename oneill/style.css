@@ -180,6 +180,27 @@ h1, h2, p { margin-top: 0; }
   font-variant-numeric: tabular-nums;
 }
 
+#environment-mode-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin-top: 9px;
+  padding: 4px 8px;
+  border: 1px solid rgb(50 76 56 / 25%);
+  border-radius: 7px;
+  color: #36533c;
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+#environment-mode-link:hover,
+#environment-mode-link:focus-visible {
+  background: rgb(74 111 78 / 10%);
+  outline: 2px solid rgb(74 111 78 / 40%);
+  outline-offset: 1px;
+}
+
 #movement-speed-hud {
   display: flex;
   align-items: center;
@@ -549,6 +570,7 @@ h1, h2, p { margin-top: 0; }
   #world-hud { left: 12px; top: 12px; min-width: 0; padding: 11px 13px; }
   #world-hud h1 { font-size: 21px; }
   .world-stats { font-size: 10px; }
+  #environment-mode-link { min-height: 24px; margin-top: 7px; font-size: 9px; }
   #movement-speed-hud { gap: 10px; margin-top: 8px; padding: 6px 8px; }
   #movement-speed-value { font-size: 17px; }
   #movement-speed-mode { font-size: 8px; }

@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import { createBuildingArchetypeGeometries } from '../houses/oneill-cylinder/tools/asset-kit.js';
 import { createExteriorStructures } from '../houses/oneill-cylinder/tools/exterior-kit.js';
 import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js';
+import {
+  loadTorusHomeAssets,
+  placeTorusHome,
+  TORUS_HOME_PAD_BLEND_RADIUS_M,
+  TORUS_HOME_PAD_RADIUS_M,
+  TORUS_HOME_SITE_CLEARANCE_M,
+  torusHomeSpawnLocal,
+} from './torus-home.js';
 
 const canvas = document.querySelector('#world');
 const loading = document.querySelector('#loading');
@@ -12,6 +20,15 @@ const PLAYER_EYE_HEIGHT_M = 1.7272;
 const PLAYER_BODY_HEIGHT_M = 1.8288;
 const PLAYER_COLLISION_RADIUS_M = 0.32;
 const playerEyeHeight = PLAYER_EYE_HEIGHT_M;
+const combinedHomeMode = new URLSearchParams(window.location.search).get('house') === 'torus';
+const environmentModeUrl = new URL(window.location.href);
+if (combinedHomeMode) environmentModeUrl.searchParams.delete('house');
+else environmentModeUrl.searchParams.set('house', 'torus');
+const environmentModeLink = document.querySelector('#environment-mode-link');
+environmentModeLink.href = `${environmentModeUrl.pathname}${environmentModeUrl.search}${environmentModeUrl.hash}`;
+environmentModeLink.textContent = combinedHomeMode
+  ? 'Open O’Neill Cylinder only'
+  : 'Open with Torus Home';
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: !isTouch,
@@ -156,6 +173,10 @@ const persistentWorldMaterials = new Set([
 ]);
 let world;
 let ready = false;
+let torusHomeReady = !combinedHomeMode;
+let torusHomeAssets = null;
+let torusHomeLoading = { house: 'waiting', collision: 'waiting' };
+let startupErrorMessage = '';
 let lastFrame = performance.now();
 let lastStatsTime = 0;
 let currentTileKey = '';
@@ -634,6 +655,13 @@ function addWaterfalls(group, column, row) {
   }
 }
 
+function isInsideTorusHomeClearing(s, z, extraRadius = 0) {
+  const site = world?.torusHomeSite;
+  if (!site) return false;
+  const ds = world.shortestDeltaS(s, site.s);
+  return Math.hypot(ds, z - site.z) < site.clearanceRadius + extraRadius;
+}
+
 function addRoads(group, roads, column, row) {
   if (!roads.length) return;
   const sizeS = world.circumferentialChunkSize;
@@ -684,7 +712,10 @@ function addRoads(group, roads, column, row) {
         + Math.abs(dz / length) * shoulderHalfWidth;
       const halfZ = Math.abs(dz / length) * halfStation
         + Math.abs(dx / length) * shoulderHalfWidth;
-      stationDry[station] = world.isUnderWater?.(centerS, centerZ, halfS, halfZ) ? 0 : 1;
+      stationDry[station] = world.isUnderWater?.(centerS, centerZ, halfS, halfZ)
+        || isInsideTorusHomeClearing(centerS, centerZ, road.width / 2 + 1)
+        ? 0
+        : 1;
       for (const lateral of [-road.width / 2, 0, road.width / 2]) {
         const camber = Math.abs(lateral) < 0.001 ? 0.12 : 0.04;
         crossSection(t, lateral, camber).toArray(bucket.positions, bucket.positions.length);
@@ -834,7 +865,27 @@ function buildChunkScenery(column, row) {
 
 function getPlacements(column, row) {
   const key = `${column}:${row}`;
-  if (!placementCache.has(key)) placementCache.set(key, world.generatePlacements(column, row));
+  if (!placementCache.has(key)) {
+    const placements = world.generatePlacements(column, row);
+    if (world.torusHomeSite) {
+      placements.trees = placements.trees.filter(tree => (
+        !isInsideTorusHomeClearing(tree.s, tree.z, tree.scale * 3)
+      ));
+      placements.buildings = placements.buildings.filter(building => (
+        !isInsideTorusHomeClearing(
+          building.s,
+          building.z,
+          Math.hypot(building.width / 2, building.depth / 2),
+        )
+      ));
+      placements.farmland = placements.farmland.filter(plot => {
+        const s = column * world.circumferentialChunkSize + plot.localS;
+        const z = world.chunkStartZ(row) + plot.localZ;
+        return !isInsideTorusHomeClearing(s, z, Math.hypot(plot.width / 2, plot.depth / 2));
+      });
+    }
+    placementCache.set(key, placements);
+  }
   return placementCache.get(key);
 }
 
@@ -990,6 +1041,57 @@ function reconcileChunks() {
   currentTileKey = surfaceTileKey(visibleSurfaceS(), player.z);
 }
 
+function startupTerrainChunkKeys() {
+  if (!world) return [];
+  const sizeS = world.circumferentialChunkSize;
+  const columnCount = world.circumferenceChunks;
+  const rowCount = Math.ceil(world.config.surface.axialLengthMeters / world.chunkSize);
+  const centerColumn = Math.floor(world.wrapS(visibleSurfaceS()) / sizeS);
+  const centerRow = THREE.MathUtils.clamp(
+    Math.floor((player.z + world.axialHalfLength) / world.chunkSize),
+    0,
+    rowCount - 1,
+  );
+  const keys = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    const column = mod(centerColumn + dx, columnCount);
+    for (let dz = -1; dz <= 1; dz++) {
+      const row = centerRow + dz;
+      if (row >= 0 && row < rowCount) keys.push(`${column}:${row}`);
+    }
+  }
+  return keys;
+}
+
+function updateStartupReadiness() {
+  if (ready || !world || worldRegenerationInProgress) return;
+  if (startupErrorMessage) {
+    loading.hidden = false;
+    loadingStatus.textContent = startupErrorMessage;
+    return;
+  }
+  const starterKeys = startupTerrainChunkKeys();
+  const loadedStarterCount = starterKeys.filter(key => chunks.has(key)).length;
+  const terrainReady = starterKeys.length > 0 && loadedStarterCount === starterKeys.length;
+  const allRequiredAssetsReady = !combinedHomeMode || torusHomeReady;
+  if (terrainReady && allRequiredAssetsReady) {
+    ready = true;
+    loading.hidden = true;
+    loadingStatus.textContent = 'Nearby terrain is ready. The rest of the habitat continues streaming.';
+    return;
+  }
+
+  loading.hidden = false;
+  const terrainStatus = `nearby terrain ${loadedStarterCount}/${starterKeys.length} chunks`;
+  if (combinedHomeMode && !torusHomeReady) {
+    const houseStatus = `${torusHomeLoading.house} · collision ${torusHomeLoading.collision}`;
+    loadingStatus.textContent = `Loading Torus Home (${houseStatus}) while preparing ${terrainStatus}…`;
+  } else {
+    loadingStatus.textContent = `Preparing your starting area · ${terrainStatus}…`;
+  }
+  progress.style.width = `${starterKeys.length ? (loadedStarterCount / starterKeys.length) * 100 : 0}%`;
+}
+
 function processChunkQueue() {
   const limit = isTouch ? 1 : world.config.streaming.chunksBuiltPerFrame;
   for (let i = 0; i < limit && pendingChunkKeys.length; i++) {
@@ -997,7 +1099,11 @@ function processChunkQueue() {
     const [column, row] = key.split(':').map(Number);
     buildChunk(column, row);
   }
-  const sceneryLimit = isTouch ? 1 : world.config.streaming.sceneryBuiltPerFrame || 2;
+  const sceneryLimit = !ready
+    ? 0
+    : isTouch
+      ? 1
+      : world.config.streaming.sceneryBuiltPerFrame || 2;
   for (let i = 0; i < sceneryLimit && pendingSceneryKeys.length; i++) {
     const key = pendingSceneryKeys.shift();
     const [column, row] = key.split(':').map(Number);
@@ -1005,14 +1111,13 @@ function processChunkQueue() {
   }
   const loaded = chunks.size;
   const total = loaded + pendingChunkKeys.length + pendingSceneryKeys.length;
-  progress.style.width = total ? `${(loaded / total) * 100}%` : '100%';
-  loadingStatus.textContent = pendingChunkKeys.length || pendingSceneryKeys.length
-    ? `Streaming terrain and nearby scenery… ${loaded} chunks · ${pendingChunkKeys.length} terrain / ${pendingSceneryKeys.length} scenery queued`
-    : 'The seeded landscape is ready.';
-  if (!pendingChunkKeys.length && !pendingSceneryKeys.length && loaded) {
-    ready = true;
-    loading.hidden = true;
+  if (ready) {
+    progress.style.width = total ? `${(loaded / total) * 100}%` : '100%';
+    loadingStatus.textContent = pendingChunkKeys.length || pendingSceneryKeys.length
+      ? `Streaming the remaining landscape · ${loaded} chunks loaded · ${pendingChunkKeys.length} terrain / ${pendingSceneryKeys.length} scenery queued`
+      : 'The seeded landscape is ready.';
   }
+  updateStartupReadiness();
 }
 
 function updateBackdrop() {
@@ -1472,9 +1577,87 @@ function findDrySpawn(nextWorld) {
   throw new Error('This seed has no dry spawn area. Reduce water coverage and regenerate.');
 }
 
+function findTorusHomeSite(nextWorld) {
+  const reachZ = Math.min(nextWorld.axialHalfLength * 0.72, 4300);
+  const phase = (Math.abs(nextWorld.seed) % 100000) / 100000 * Math.PI * 2;
+  const isSuitable = (s, z) => (
+    !nextWorld.isUnderWater(s, z, TORUS_HOME_SITE_CLEARANCE_M, TORUS_HOME_SITE_CLEARANCE_M)
+    && !nextWorld.footprintCrossesRiver(
+      s,
+      z,
+      TORUS_HOME_SITE_CLEARANCE_M,
+      TORUS_HOME_SITE_CLEARANCE_M,
+    )
+    && !(nextWorld.landmarks || []).some(landmark => (
+      Math.hypot(
+        nextWorld.shortestDeltaS(s, landmark.s),
+        z - landmark.z,
+      ) < TORUS_HOME_SITE_CLEARANCE_M + Math.hypot(landmark.width / 2, landmark.depth / 2)
+    ))
+  );
+
+  for (let index = 0; index < 384; index++) {
+    const angle = index * 2.399963229728653 + phase;
+    const spread = 0.12 + 0.78 * Math.sqrt((index + 1) / 384);
+    const s = nextWorld.wrapS(
+      nextWorld.circumference * 0.5
+      + Math.cos(angle) * nextWorld.circumference * 0.43 * spread,
+    );
+    const z = Math.sin(angle) * reachZ * spread;
+    if (!isSuitable(s, z)) continue;
+    const height = nextWorld.terrainHeight(s, z);
+    const site = {
+      s,
+      z,
+      height,
+      padRadius: TORUS_HOME_PAD_RADIUS_M,
+      blendRadius: TORUS_HOME_PAD_BLEND_RADIUS_M,
+      clearanceRadius: TORUS_HOME_SITE_CLEARANCE_M,
+    };
+    nextWorld.torusHomeSite = site;
+    return site;
+  }
+
+  const rows = Math.ceil(nextWorld.config.surface.axialLengthMeters / nextWorld.chunkSize);
+  for (let row = 0; row < rows; row++) {
+    const z = nextWorld.chunkStartZ(row) + nextWorld.chunkSize / 2;
+    for (let column = 0; column < nextWorld.circumferenceChunks; column++) {
+      const s = (column + 0.5) * nextWorld.circumferentialChunkSize;
+      if (!isSuitable(s, z)) continue;
+      const height = nextWorld.terrainHeight(s, z);
+      const site = {
+        s,
+        z,
+        height,
+        padRadius: TORUS_HOME_PAD_RADIUS_M,
+        blendRadius: TORUS_HOME_PAD_BLEND_RADIUS_M,
+        clearanceRadius: TORUS_HOME_SITE_CLEARANCE_M,
+      };
+      nextWorld.torusHomeSite = site;
+      return site;
+    }
+  }
+  throw new Error('This seed has no dry 50 m clearing for the Torus Home. Reduce water coverage and regenerate.');
+}
+
+function setTorusHomeSpawn(nextWorld, site) {
+  const localSpawn = torusHomeSpawnLocal();
+  player.s = nextWorld.wrapS(site.s + localSpawn.x);
+  player.z = site.z + localSpawn.z;
+  player.yaw = localSpawn.yaw;
+  player.pitch = 0;
+  player.elevation = 0;
+  player.verticalVelocity = 0;
+  player.flying = false;
+  player.axisSide = false;
+  player.fallTargetSide = -1;
+  player.lastFlightDirection = -1;
+}
+
 async function regenerateWorld() {
   if (!world || worldRegenerationInProgress || regenerateWorldButton.disabled) return;
   worldRegenerationInProgress = true;
+  startupErrorMessage = '';
   ready = false;
   loadingStatus.textContent = 'Preparing a new seeded landscape…';
   progress.style.width = '0%';
@@ -1519,17 +1702,22 @@ async function regenerateWorld() {
     }
     disposeWorldStructures();
 
-    const spawn = findDrySpawn(world);
-    player.s = spawn.s;
-    player.z = spawn.z;
-    player.yaw = 0;
-    player.pitch = 0;
-    player.elevation = 0;
-    player.verticalVelocity = 0;
-    player.flying = false;
-    player.axisSide = false;
-    player.fallTargetSide = -1;
-    player.lastFlightDirection = -1;
+    const spawn = combinedHomeMode ? findTorusHomeSite(world) : findDrySpawn(world);
+    if (combinedHomeMode) {
+      setTorusHomeSpawn(world, spawn);
+      if (torusHomeAssets) placeTorusHome(scene, torusHomeAssets, world, spawn);
+    } else {
+      player.s = spawn.s;
+      player.z = spawn.z;
+      player.yaw = 0;
+      player.pitch = 0;
+      player.elevation = 0;
+      player.verticalVelocity = 0;
+      player.flying = false;
+      player.axisSide = false;
+      player.fallTargetSide = -1;
+      player.lastFlightDirection = -1;
+    }
     playerOutside = false;
     outsidePosition.set(0, 0, 0);
     tramPositionZ = 0;
@@ -2057,6 +2245,13 @@ function collidesWithBuilding(s, z, building, playerRadius = PLAYER_COLLISION_RA
 }
 
 function isBlocked(s, z) {
+  const torusHomeSite = world.torusHomeSite;
+  if (torusHomeAssets?.collision && torusHomeSite && !player.axisSide) {
+    const localX = world.shortestDeltaS(s, torusHomeSite.s);
+    const localZ = z - torusHomeSite.z;
+    if (torusHomeAssets.collision.blocks(localX, localZ, PLAYER_COLLISION_RADIUS_M)) return true;
+  }
+
   const chunkSizeS = world.circumferentialChunkSize;
   const chunkSizeZ = world.chunkSize;
   const columnCount = world.circumferenceChunks;
@@ -2118,7 +2313,15 @@ function updateHud(now) {
       wetland: 'Wetland',
       highlands: 'Highlands',
     };
-    regionLabel.textContent = `Biome · ${biomeNames[biome] || biome}`;
+    const localHomeDistance = world.torusHomeSite && !player.axisSide
+      ? Math.hypot(
+        world.shortestDeltaS(visibleSurfaceS(), world.torusHomeSite.s),
+        player.z - world.torusHomeSite.z,
+      )
+      : Infinity;
+    regionLabel.textContent = combinedHomeMode && localHomeDistance < 22
+      ? `Torus Home · ${biomeNames[biome] || biome}`
+      : `Biome · ${biomeNames[biome] || biome}`;
   }
   document.querySelector('#location').textContent = playerOutside
     ? `Exterior · ${Math.round(distanceFromHull(outsidePosition))} m from hull · X ${Math.round(outsidePosition.x)}, Y ${Math.round(outsidePosition.y)}, Z ${Math.round(outsidePosition.z)} m`
@@ -2388,20 +2591,49 @@ window.addEventListener('resize', resize);
 
 async function start() {
   try {
+    let houseAssetsPromise = Promise.resolve({ assets: null });
+    if (combinedHomeMode) {
+      document.title = "Torus Home inside Green Reach · O'Neill Cylinder";
+      document.querySelector('#world-hud .eyebrow').textContent = 'DREAM HOME · INSIDE GREEN REACH';
+      document.querySelector('#world-hud h1').textContent = 'Torus Home';
+      torusHomeLoading = { house: 'starting', collision: 'starting' };
+      houseAssetsPromise = loadTorusHomeAssets({
+        visualUrl: '../assets/dream-home.glb',
+        collisionUrl: '../assets/torus-home-collision.glb',
+        onVisualLoaded: visual => {
+          torusHomeAssets = { visual, collision: null };
+          if (world?.torusHomeSite) {
+            placeTorusHome(scene, torusHomeAssets, world, world.torusHomeSite);
+          }
+        },
+        onProgress: (asset, percent, loaded) => {
+          const amount = percent === null
+            ? `${(loaded / 1024 / 1024).toFixed(1)} MiB`
+            : `${percent}%`;
+          torusHomeLoading[asset] = amount;
+          updateStartupReadiness();
+        },
+      }).then(assets => ({ assets }), error => ({ error }));
+    }
+
     const response = await fetch('../houses/oneill-cylinder/data/world-config.json');
     if (!response.ok) throw new Error(`World settings could not be loaded (${response.status}).`);
     const config = await response.json();
     const seed = getSeed(config);
     world = new CylinderWorld(config, seed);
     world.hullRadius = world.hullRadius || world.radius + (world.groundDepth || 500);
-    const spawn = findDrySpawn(world);
-    player.s = spawn.s;
-    player.z = spawn.z;
-    player.elevation = 0;
-    player.verticalVelocity = 0;
-    player.flying = false;
-    player.axisSide = false;
-    player.fallTargetSide = -1;
+    const spawn = combinedHomeMode ? findTorusHomeSite(world) : findDrySpawn(world);
+    if (combinedHomeMode) {
+      setTorusHomeSpawn(world, spawn);
+    } else {
+      player.s = spawn.s;
+      player.z = spawn.z;
+      player.elevation = 0;
+      player.verticalVelocity = 0;
+      player.flying = false;
+      player.axisSide = false;
+      player.fallTargetSide = -1;
+    }
     document.querySelector('#seed').textContent = `Seed ${seed}`;
     document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m habitat diameter`;
     syncWorldSettingsControls();
@@ -2419,12 +2651,24 @@ async function start() {
     addLandmarks();
     addTramSystem();
     makeBackdrop();
+    if (combinedHomeMode) torusHomeReady = false;
     syncCamera();
     reconcileChunks();
     requestAnimationFrame(frame);
+
+    if (combinedHomeMode) {
+      const result = await houseAssetsPromise;
+      if (result.error) throw result.error;
+      torusHomeAssets = result.assets;
+      placeTorusHome(scene, torusHomeAssets, world, world.torusHomeSite);
+      torusHomeLoading = { house: 'ready', collision: 'ready' };
+      torusHomeReady = true;
+      updateStartupReadiness();
+    }
   } catch (error) {
     console.error('[O\'Neill Cylinder] Could not start:', error);
-    loadingStatus.textContent = error.message || 'The environment could not be loaded.';
+    startupErrorMessage = error.message || 'The environment could not be loaded.';
+    loadingStatus.textContent = startupErrorMessage;
     document.querySelector('.loading-card h2').textContent = 'Could not build the landscape';
   }
 }

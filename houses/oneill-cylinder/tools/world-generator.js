@@ -520,6 +520,28 @@ export class CylinderWorld {
       height -= basin * zone.lake.basinDepth;
     }
     height = this.#inlandSeaTerrainHeight(height, s, z);
+
+    // The combined Torus Home view reserves a small, seed-specific building
+    // pad. Blend into the procedural landscape outside the footprint so the
+    // home has level floors and its nearby terrain remains continuous.
+    const homeSite = this.torusHomeSite;
+    if (homeSite) {
+      const deltaS = this.shortestDeltaS(s, homeSite.s);
+      const distance = Math.hypot(deltaS, z - homeSite.z);
+      // A constant radial height would preserve the cylinder's curve and leave
+      // a shallow gap beneath a flat house floor. This radial value traces the
+      // tangent plane through the house site across its short footprint.
+      if (distance <= homeSite.padRadius) {
+        height = this.radius
+          - (this.radius - homeSite.height) / Math.cos(deltaS / this.radius);
+      } else if (distance < homeSite.blendRadius) {
+        const padHeight = this.radius
+          - (this.radius - homeSite.height) / Math.cos(deltaS / this.radius);
+        const blend = smooth((distance - homeSite.padRadius)
+          / (homeSite.blendRadius - homeSite.padRadius));
+        height = padHeight + (height - padHeight) * blend;
+      }
+    }
     return Math.max(this.minimumGroundHeight, height);
   }
 
