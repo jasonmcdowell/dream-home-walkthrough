@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createBuildingArchetypeGeometries } from '../houses/oneill-cylinder/tools/asset-kit.js';
 import { createExteriorStructures } from '../houses/oneill-cylinder/tools/exterior-kit.js';
-import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js?v=river-standing-water-20260924';
+import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js?v=altimeter-jump-20260924';
 import {
   loadTorusHomeAssets,
   placeTorusHome,
@@ -184,6 +184,7 @@ let torusHomeLoading = { house: 'waiting', collision: 'waiting' };
 let startupErrorMessage = '';
 let lastFrame = performance.now();
 let lastStatsTime = 0;
+let lastAltimeterUpdate = 0;
 let currentTileKey = '';
 let pendingChunkKeys = [];
 let pendingSceneryKeys = [];
@@ -242,6 +243,10 @@ const movementSpeedMode = document.querySelector('#movement-speed-mode');
 const movementSpeedValue = document.querySelector('#movement-speed-value');
 const gravityValue = document.querySelector('#gravity-value');
 const gravityNote = document.querySelector('#gravity-note');
+const altimeterLabel = document.querySelector('#altimeter-label');
+const altimeterReference = document.querySelector('#altimeter-reference');
+const altimeterValue = document.querySelector('#altimeter-value');
+const altimeterFeet = document.querySelector('#altimeter-feet');
 
 const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
 const surfaceOrigin = new THREE.Vector3();
@@ -266,6 +271,8 @@ const TRAM_SPEED_MPS = 220;
 const DEFAULT_FLIGHT_SPEED_MPS = 100;
 const AXIS_GRAVITY_MPS2 = 3;
 const GROUND_GRAVITY_MPS2 = 9.8;
+const JUMP_TAKEOFF_VELOCITY_MPS = 3.0; // About 0.46 m of rise at ground-level gravity.
+const ALTIMETER_UPDATE_MS = 80;
 const GAMEPAD_ACCELERATION_FRACTION = 0.14;
 const GAMEPAD_BRAKE_MULTIPLIER = 1.5;
 let runningSpeedMps = 10;
@@ -2042,7 +2049,9 @@ updateSceneryRange();
 
 function advanceVerticalMotion(gamepad, dt, movementSpeed) {
   if (jumpQueued) {
-    if (!player.flying && player.elevation <= 0.02) player.verticalVelocity = 5.2;
+    if (!player.flying && player.elevation <= 0.02) {
+      player.verticalVelocity = JUMP_TAKEOFF_VELOCITY_MPS;
+    }
     jumpQueued = false;
   }
 
@@ -2409,7 +2418,39 @@ function isBlocked(s, z) {
   return false;
 }
 
+function updateAltimeter() {
+  let altitudeMeters;
+  if (playerOutside) {
+    altitudeMeters = distanceFromHull(outsidePosition);
+    altimeterReference.textContent = 'Distance from the hull';
+  } else if (tramRiding) {
+    altitudeMeters = nearWallDistance(player.s, player.z);
+    altimeterReference.textContent = 'Axis tram · height above ground';
+  } else {
+    altitudeMeters = player.axisSide
+      ? farWallElevation(player.s, player.z) - player.elevation
+      : player.elevation;
+    altimeterReference.textContent = 'Above the nearest ground';
+  }
+  altitudeMeters = Math.max(0, altitudeMeters);
+  altimeterLabel.textContent = playerOutside
+    ? 'HULL CLEARANCE'
+    : 'ALTITUDE · AGL';
+  altimeterValue.textContent = `${altitudeMeters.toLocaleString(undefined, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} m`;
+  altimeterFeet.textContent = `${(altitudeMeters * 3.28084).toLocaleString(undefined, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} ft`;
+}
+
 function updateHud(now) {
+  if (now - lastAltimeterUpdate >= ALTIMETER_UPDATE_MS) {
+    lastAltimeterUpdate = now;
+    updateAltimeter();
+  }
   if (now - lastStatsTime < 180) return;
   lastStatsTime = now;
   updateCompass();
@@ -2466,10 +2507,10 @@ function updateHud(now) {
       : `Biome · ${biomeNames[biome] || biome}`;
   }
   document.querySelector('#location').textContent = playerOutside
-    ? `Exterior · ${Math.round(distanceFromHull(outsidePosition))} m from hull · X ${Math.round(outsidePosition.x)}, Y ${Math.round(outsidePosition.y)}, Z ${Math.round(outsidePosition.z)} m`
+    ? `Exterior · X ${Math.round(outsidePosition.x)}, Y ${Math.round(outsidePosition.y)}, Z ${Math.round(outsidePosition.z)} m`
     : tramRiding
       ? `Tram · Axis ${Math.round(player.z)} m · ${TRAM_SPEED_MPS} m/s`
-      : `Arc ${Math.round(visibleSurfaceS())} m · Axis ${Math.round(player.z)} m · Height ${Math.round(player.elevation)} m`;
+      : `Arc ${Math.round(visibleSurfaceS())} m · Axis ${Math.round(player.z)} m`;
 }
 
 function updateCompass() {

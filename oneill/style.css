@@ -265,6 +265,58 @@ h1, h2, p { margin-top: 0; }
   white-space: nowrap;
 }
 
+#altimeter-hud {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgb(50 76 56 / 28%);
+  border-radius: 9px;
+  background: rgb(31 49 40 / 94%);
+  color: #e8f0df;
+  font-variant-numeric: tabular-nums;
+}
+
+#altimeter-labels,
+#altimeter-readout {
+  display: grid;
+  gap: 3px;
+}
+
+#altimeter-label {
+  color: #e8f0df;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .11em;
+}
+
+#altimeter-reference {
+  color: #b9cbb9;
+  font-size: 8px;
+  line-height: 1.2;
+}
+
+#altimeter-readout {
+  justify-items: end;
+}
+
+#altimeter-value {
+  color: #f3f5e7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+#altimeter-feet {
+  color: #b9cbb9;
+  font-size: 8px;
+  line-height: 1;
+}
+
 #hint {
   position: fixed;
   z-index: 3;
@@ -629,6 +681,9 @@ h1, h2, p { margin-top: 0; }
   #movement-speed-mode { font-size: 8px; }
   #gravity-hud { margin-top: 5px; }
   #gravity-value { font-size: 14px; }
+  #altimeter-hud { gap: 6px; margin-top: 6px; padding: 6px 8px; }
+  #altimeter-value { font-size: 16px; }
+  #altimeter-label, #altimeter-reference, #altimeter-feet { font-size: 7px; }
   #heading-compass { top: 91px; right: 12px; width: 116px; gap: 4px; padding: 8px; }
   #compass-rose { width: 78px; height: 78px; }
   .compass-axis-plus { top: 3px; }
