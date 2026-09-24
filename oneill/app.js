@@ -246,6 +246,8 @@ const gravityNote = document.querySelector('#gravity-note');
 const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
 const surfaceOrigin = new THREE.Vector3();
 const viewDirection = new THREE.Vector3();
+const cameraViewRight = new THREE.Vector3();
+const cameraFlightMotion = new THREE.Vector3();
 const flatForward = new THREE.Vector3();
 const cameraFrameUp = new THREE.Vector3();
 const cameraViewUp = new THREE.Vector3();
@@ -1166,6 +1168,7 @@ function syncCamera() {
   cameraViewUp.copy(cameraFrameUp).multiplyScalar(Math.cos(player.pitch))
     .addScaledVector(flatForward, -Math.sin(player.pitch));
   camera.up.copy(cameraViewUp);
+  cameraViewRight.copy(viewDirection).cross(cameraViewUp).normalize();
   camera.lookAt(surfaceOrigin.copy(camera.position).add(viewDirection));
 
   const background = exteriorView ? exteriorBackground : interiorBackground;
@@ -1362,7 +1365,7 @@ function updateMovementHint() {
     hint.textContent = `Axis tram · look around · E / Y / Triangle to exit at the station · ${look}`;
   } else if (player.flying) {
     hint.textContent = player.flightMode === 'camera'
-      ? `Camera-directed flight · ${look} · W / left stick thrust follows aim · S reverses · A / D strafe · look through a full vertical circle to climb or dive · V / X / Square switches mode`
+      ? `Camera-directed flight · ${look} · W / S follow view · A / D strafe along camera-right · horizontal look stays screen-relative upside down · V / X / Square switches mode`
       : `Minecraft flight · WASD / left stick move · Space / A-Cross rise · Ctrl / B-Circle lower · V / X / Square camera-directed mode · orientation changes on landing`;
   } else {
     const selectedFlightMode = player.flightMode === 'camera' ? 'Camera-directed' : 'Minecraft';
@@ -2116,7 +2119,7 @@ function step(dt) {
     }
   }
   const movementSpeed = resolveMovementSpeed(gamepad, dt);
-  player.yaw -= gamepad.lookX * GAMEPAD_LOOK_SPEED * dt;
+  updateLookYaw(-gamepad.lookX * GAMEPAD_LOOK_SPEED * dt);
   updateLookPitch(-gamepad.lookY * GAMEPAD_LOOK_SPEED * dt);
   if (interact) handleTramInteraction();
 
@@ -2148,29 +2151,40 @@ function step(dt) {
 }
 
 function advanceCameraDirectedFlight(gamepad, dt, movementSpeed) {
+  syncCamera();
   const intent = readIntent(gamepad);
-  const horizontalIntent = {
-    forward: intent.forward * Math.cos(player.pitch),
-    strafe: intent.strafe,
+  cameraFlightMotion.copy(viewDirection).multiplyScalar(intent.forward)
+    .addScaledVector(cameraViewRight, intent.strafe);
+  const intentLength = cameraFlightMotion.length();
+  if (intentLength > 1) cameraFlightMotion.multiplyScalar(1 / intentLength);
+
+  const pose = world.surfacePose(player.s, player.z, playerEyeHeight + player.elevation);
+  const travel = movementSpeed * dt;
+  const surfaceSide = player.axisSide ? -1 : 1;
+  const surfaceDisplacement = {
+    ds: cameraFlightMotion.dot(pose.tangent) * surfaceSide * travel,
+    dz: cameraFlightMotion.dot(pose.axis) * travel,
   };
-  player.verticalVelocity = intent.forward * Math.sin(player.pitch) * movementSpeed;
+  player.verticalVelocity = cameraFlightMotion.dot(pose.up) * movementSpeed;
   if (player.verticalVelocity) player.lastFlightDirection = Math.sign(player.verticalVelocity);
   player.elevation = THREE.MathUtils.clamp(
     player.elevation + player.verticalVelocity * dt,
     0,
     farWallElevation(),
   );
-  advanceInteriorMovement(gamepad, dt, movementSpeed, horizontalIntent);
+  advanceInteriorMovement(gamepad, dt, movementSpeed, null, surfaceDisplacement);
   updateAxisSide();
 }
 
-function advanceInteriorMovement(gamepad, dt, movementSpeed, intent = readIntent(gamepad)) {
-  if (!intent.forward && !intent.strafe) return;
+function advanceInteriorMovement(gamepad, dt, movementSpeed, intent = readIntent(gamepad), surfaceDisplacement = null) {
+  if (!surfaceDisplacement && !intent.forward && !intent.strafe) return;
   const speed = movementSpeed;
   const surfaceSide = player.axisSide ? -1 : 1;
-  const ds = (intent.forward * Math.sin(player.yaw) - intent.strafe * Math.cos(player.yaw))
-    * surfaceSide * speed * dt;
-  const dz = (intent.forward * Math.cos(player.yaw) + intent.strafe * Math.sin(player.yaw)) * speed * dt;
+  const ds = surfaceDisplacement?.ds
+    ?? (intent.forward * Math.sin(player.yaw) - intent.strafe * Math.cos(player.yaw)) * surfaceSide * speed * dt;
+  const dz = surfaceDisplacement?.dz
+    ?? (intent.forward * Math.cos(player.yaw) + intent.strafe * Math.sin(player.yaw)) * speed * dt;
+  if (Math.abs(ds) + Math.abs(dz) < 1e-9) return;
   const movementSteps = Math.max(1, Math.ceil(Math.hypot(ds, dz) / 1));
   const stepS = ds / movementSteps;
   const stepZ = dz / movementSteps;
@@ -2476,9 +2490,15 @@ function frame(now) {
 }
 
 function applyLook(dx, dy, sensitivity = 0.0023) {
-  player.yaw -= dx * sensitivity;
+  updateLookYaw(-dx * sensitivity);
   updateLookPitch(-dy * sensitivity);
   syncCamera();
+}
+
+function updateLookYaw(delta) {
+  const cameraDirectedFlight = player.flying && player.flightMode === 'camera';
+  const direction = cameraDirectedFlight && Math.cos(player.pitch) < 0 ? -1 : 1;
+  player.yaw += delta * direction;
 }
 
 function updateLookPitch(delta) {
