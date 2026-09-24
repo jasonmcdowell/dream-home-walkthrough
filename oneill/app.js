@@ -2450,7 +2450,7 @@ function applyLook(dx, dy, sensitivity = 0.0023) {
 function updateLookPitch(delta) {
   const nextPitch = player.pitch + delta;
   if (player.flying && player.flightMode === 'camera') {
-    player.pitch = THREE.MathUtils.euclideanModulo(nextPitch + Math.PI, Math.PI * 2) - Math.PI;
+    player.pitch = mod(nextPitch + Math.PI, Math.PI * 2) - Math.PI;
   } else {
     player.pitch = THREE.MathUtils.clamp(nextPitch, -1.43, 1.43);
   }
