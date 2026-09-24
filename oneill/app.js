@@ -9,7 +9,7 @@ import {
   TORUS_HOME_PAD_RADIUS_M,
   TORUS_HOME_SITE_CLEARANCE_M,
   torusHomeSpawnLocal,
-} from './torus-home.js';
+} from './torus-home.js?v=doors-f4fc00c';
 
 const canvas = document.querySelector('#world');
 const loading = document.querySelector('#loading');
