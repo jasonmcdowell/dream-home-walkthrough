@@ -240,6 +240,8 @@ const headingDetail = document.querySelector('#heading-detail');
 const regionLabel = document.querySelector('#region');
 const movementSpeedMode = document.querySelector('#movement-speed-mode');
 const movementSpeedValue = document.querySelector('#movement-speed-value');
+const gravityValue = document.querySelector('#gravity-value');
+const gravityNote = document.querySelector('#gravity-note');
 
 const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
 const surfaceOrigin = new THREE.Vector3();
@@ -259,6 +261,9 @@ const AIRLOCK_TUNNEL_HALF_LENGTH = 46;
 const AIRLOCK_STATION_OFFSET = 20;
 const EXTERIOR_MAX_DISTANCE = 1000;
 const TRAM_SPEED_MPS = 220;
+const DEFAULT_FLIGHT_SPEED_MPS = 100;
+const AXIS_GRAVITY_MPS2 = 3;
+const GROUND_GRAVITY_MPS2 = 9.8;
 const GAMEPAD_ACCELERATION_FRACTION = 0.14;
 const GAMEPAD_BRAKE_MULTIPLIER = 1.5;
 let runningSpeedMps = 10;
@@ -1388,6 +1393,23 @@ function farWallElevation(s = player.s, z = player.z) {
   return nearWallDistance(s, z) + farWallDistance(s, z);
 }
 
+function localDownwardAccelerationMps2(
+  s = player.s,
+  z = player.z,
+  elevation = player.elevation,
+  axisSide = player.axisSide,
+) {
+  if (!world || playerOutside) return 0;
+  const nearDistance = nearWallDistance(s, z);
+  const distanceFromAxis = Math.abs(elevation - nearDistance);
+  const groundDistance = axisSide ? farWallDistance(s, z) : nearDistance;
+  return THREE.MathUtils.lerp(
+    AXIS_GRAVITY_MPS2,
+    GROUND_GRAVITY_MPS2,
+    THREE.MathUtils.clamp(distanceFromAxis / groundDistance, 0, 1),
+  );
+}
+
 function distanceFromHull(position) {
   const radialGap = Math.max(0, Math.hypot(position.x, position.y) - world.hullRadius);
   const axialGap = Math.max(0, Math.abs(position.z) - world.axialHalfLength);
@@ -1841,9 +1863,10 @@ function updateFlyingSpeed() {
   updateSpeedLimitOutput(flyingSpeedSlider, flyingSpeedValue);
   if (playerOutside || player.flying) {
     controllerSpeedMode = 'flight';
-    controllerSpeedRampActive = false;
-    controllerRampSpeedMps = flyingSpeedMps;
-    movementSpeedMps = flyingSpeedMps;
+    const currentSpeed = controllerSpeedRampActive ? controllerRampSpeedMps : movementSpeedMps;
+    const cappedSpeed = Math.min(Math.max(0, currentSpeed), flyingSpeedMps);
+    if (controllerSpeedRampActive) controllerRampSpeedMps = cappedSpeed;
+    movementSpeedMps = cappedSpeed;
   }
 }
 
@@ -1852,7 +1875,9 @@ function resolveMovementSpeed(gamepad, dt) {
   const speedLimit = flightMode ? flyingSpeedMps : runningSpeedMps;
   const running = !flightMode && (runToggled || runKeyHeld || gamepad.runHeld);
   const mode = flightMode ? 'flight' : running ? 'run' : 'walk';
-  const baseSpeed = flightMode ? flyingSpeedMps : running ? runningSpeedMps : WALK_SPEED_MPS;
+  const baseSpeed = flightMode
+    ? Math.min(DEFAULT_FLIGHT_SPEED_MPS, flyingSpeedMps)
+    : running ? runningSpeedMps : WALK_SPEED_MPS;
   if (mode !== controllerSpeedMode) {
     controllerSpeedMode = mode;
     controllerSpeedRampActive = false;
@@ -2028,15 +2053,13 @@ function advanceVerticalMotion(gamepad, dt, movementSpeed) {
     return;
   }
 
-  const nearDistance = nearWallDistance(player.s, player.z);
   const farElevation = farWallElevation();
   const side = player.fallTargetSide || -1;
-  const distanceFromAxis = Math.abs(player.elevation - nearDistance);
-  const wallDistance = player.axisSide ? farWallDistance(player.s, player.z) : nearDistance;
-  const gravity = THREE.MathUtils.lerp(
-    3,
-    9.8,
-    THREE.MathUtils.clamp(distanceFromAxis / wallDistance, 0, 1),
+  const gravity = localDownwardAccelerationMps2(
+    player.s,
+    player.z,
+    player.elevation,
+    player.axisSide,
   );
   player.verticalVelocity += side * gravity * dt;
   player.elevation += player.verticalVelocity * dt;
@@ -2367,6 +2390,17 @@ function updateHud(now) {
     minimumFractionDigits: speedPrecision,
     maximumFractionDigits: speedPrecision,
   })} m/s`;
+  const shownGravity = playerOutside
+    ? 0
+    : localDownwardAccelerationMps2(player.s, player.z, player.elevation, player.axisSide);
+  gravityValue.textContent = `${shownGravity.toFixed(1)} m/s²`;
+  gravityNote.textContent = playerOutside
+    ? 'No habitat gravity outside'
+    : player.flying
+      ? 'Field value · gravity paused during flight'
+      : tramRiding
+        ? 'Field value · tram holds you at the axis'
+        : 'Field acceleration toward the nearest ground';
   updateStreamingHud();
   if (playerOutside) {
     regionLabel.textContent = 'Region · Exterior';

@@ -229,6 +229,42 @@ h1, h2, p { margin-top: 0; }
   white-space: nowrap;
 }
 
+#gravity-hud {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 10px;
+  margin-top: 7px;
+  padding: 5px 2px 0;
+  border-top: 1px solid rgb(50 76 56 / 17%);
+  color: #36533c;
+  font-variant-numeric: tabular-nums;
+}
+
+#gravity-hud > div {
+  display: grid;
+  gap: 3px;
+}
+
+#gravity-label {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}
+
+#gravity-note {
+  color: #63776b;
+  font-size: 8px;
+  line-height: 1.2;
+}
+
+#gravity-value {
+  color: #36533c;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 #hint {
   position: fixed;
   z-index: 3;
@@ -591,6 +627,8 @@ h1, h2, p { margin-top: 0; }
   #movement-speed-hud { gap: 10px; margin-top: 8px; padding: 6px 8px; }
   #movement-speed-value { font-size: 17px; }
   #movement-speed-mode { font-size: 8px; }
+  #gravity-hud { margin-top: 5px; }
+  #gravity-value { font-size: 14px; }
   #heading-compass { top: 91px; right: 12px; width: 116px; gap: 4px; padding: 8px; }
   #compass-rose { width: 78px; height: 78px; }
   .compass-axis-plus { top: 3px; }

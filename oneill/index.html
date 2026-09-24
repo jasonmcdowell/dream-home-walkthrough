@@ -26,6 +26,13 @@
       <span id="movement-speed-mode">WALKING</span>
       <output id="movement-speed-value">4.6 m/s</output>
     </div>
+    <div id="gravity-hud" aria-label="Current local downward acceleration">
+      <div>
+        <span id="gravity-label">LOCAL DOWNWARD g</span>
+        <span id="gravity-note">Acceleration toward the nearest ground</span>
+      </div>
+      <output id="gravity-value">9.8 m/s²</output>
+    </div>
   </header>
   <aside id="heading-compass" aria-label="Cylinder heading">
     <p class="compass-title">CYLINDER HEADING</p>
@@ -73,11 +80,12 @@
     <input id="running-speed" type="range" min="5" max="2000" step="0.1" value="10">
     <div class="speed-range-labels"><span>5.0 m/s</span><span>2,000 m/s</span></div>
     <label class="run-speed-label view-range-label" for="flying-speed">
-      <span>Flying / zero-G speed</span>
+      <span>Maximum flying / zero-G speed</span>
       <output id="flying-speed-value" for="flying-speed">1,000 m/s</output>
     </label>
     <input id="flying-speed" type="range" min="5" max="2000" step="0.1" value="1000">
     <div class="speed-range-labels"><span>5.0 m/s</span><span>2,000 m/s</span></div>
+    <p class="view-range-note">Flight starts at 100 m/s, or at this lower limit if set below 100. The left trigger throttles up to the limit; the right trigger brakes toward zero.</p>
     <label class="run-speed-label view-range-label" for="flight-mode">
       <span>Flying mode</span>
       <select id="flight-mode">
@@ -195,7 +203,7 @@
       <div><dt>LT / L2 · RT / R2</dt><dd>Throttle · brake; speed holds when released</dd></div>
       <div><dt>E / Y / Triangle</dt><dd>Board / leave the center-axis tram</dd></div>
     </dl>
-    <p class="controls-footer">The compass uses 0° for the +Z endcap and increases toward spinward; −Z is the opposite endcap. At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside, Space or A / Cross rises and Ctrl or B / Circle lowers. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
+    <p class="controls-footer">The gravity field is 9.8 m/s² at local ground and decreases linearly to 3 m/s² at the axis; powered flight suspends gravity. The soil-depth setting is the shell depth behind the generated ground surface. The compass uses 0° for the +Z endcap and increases toward spinward; −Z is the opposite endcap. At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside, Space or A / Cross rises and Ctrl or B / Circle lowers. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
   </aside>
   <div id="loading" role="status">
     <div class="loading-card">
@@ -205,6 +213,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=full-pitch-camera-flight-20260924"></script>
+  <script type="module" src="app.js?v=gravity-hud-flight-throttle-20260924"></script>
 </body>
 </html>
