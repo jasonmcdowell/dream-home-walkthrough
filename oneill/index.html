@@ -79,17 +79,17 @@
     <input id="flying-speed" type="range" min="5" max="2000" step="0.1" value="1000">
     <div class="speed-range-labels"><span>5.0 m/s</span><span>2,000 m/s</span></div>
     <label class="run-speed-label view-range-label" for="terrain-range">
-      <span>Terrain distance</span>
-      <output id="terrain-range-value" for="terrain-range">3,500 m</output>
+      <span>Terrain viewing distance (% of diameter)</span>
+      <output id="terrain-range-value" for="terrain-range">175% · 3,500 m</output>
     </label>
-    <input id="terrain-range" type="range" min="500" max="3500" step="100" value="3500">
-    <div class="speed-range-labels"><span>500 m</span><span>3,500 m</span></div>
+    <input id="terrain-range" type="range" min="10" max="200" step="5" value="175">
+    <div class="speed-range-labels"><span>10%</span><span>200%</span></div>
     <label class="run-speed-label view-range-label" for="scenery-range">
-      <span>Buildings, trees &amp; roads</span>
-      <output id="scenery-range-value" for="scenery-range">800 m</output>
+      <span>Buildings, trees &amp; roads (% of diameter)</span>
+      <output id="scenery-range-value" for="scenery-range">175% · 3,500 m</output>
     </label>
-    <input id="scenery-range" type="range" min="200" max="1600" step="50" value="800">
-    <div class="speed-range-labels"><span>200 m</span><span id="scenery-range-max">1,600 m</span></div>
+    <input id="scenery-range" type="range" min="10" max="200" step="5" value="175">
+    <div class="speed-range-labels"><span>10%</span><span id="scenery-range-max">200%</span></div>
     <details id="world-generation-panel" open>
       <summary>Procedural world settings</summary>
       <p class="world-generation-intro">Changes are staged while you explore. Regenerate to rebuild the same seed with these settings.</p>
@@ -193,6 +193,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=doors-f4fc00c"></script>
+  <script type="module" src="app.js?v=diameter-relative-ranges-20260923"></script>
 </body>
 </html>

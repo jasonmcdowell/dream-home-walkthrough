@@ -424,7 +424,7 @@ function addLandmarks() {
 
 function updateLandmarkVisibility() {
   if (!world || !landmarkMeshes.length) return;
-  const range = Number(world.config.streaming.sceneryDistanceMeters) || 800;
+  const range = Number(world.config.streaming.sceneryDistanceMeters ?? 3500);
   const centerS = visibleSurfaceS();
   for (const mesh of landmarkMeshes) {
     const landmark = mesh.userData.landmark;
@@ -1013,7 +1013,7 @@ function chunkDistanceSquared(column, row) {
 
 function wantsScenery(column, row) {
   if (playerOutside) return false;
-  const radius = Number(world.config.streaming.sceneryDistanceMeters) || 800;
+  const radius = Number(world.config.streaming.sceneryDistanceMeters ?? 3500);
   const paddedRadius = radius + Math.hypot(world.circumferentialChunkSize, world.chunkSize) / 2;
   return chunkDistanceSquared(column, row) <= paddedRadius * paddedRadius;
 }
@@ -1483,11 +1483,13 @@ const terrainRangeSlider = document.querySelector('#terrain-range');
 const terrainRangeValue = document.querySelector('#terrain-range-value');
 const sceneryRangeSlider = document.querySelector('#scenery-range');
 const sceneryRangeValue = document.querySelector('#scenery-range-value');
+const worldDiameterSlider = document.querySelector('#world-diameter');
 const worldSettingInputs = Array.from(document.querySelectorAll('[data-world-setting]'));
 const worldSettingsStatus = document.querySelector('#world-settings-status');
 const regenerateWorldButton = document.querySelector('#regenerate-world');
 const VIEW_RANGE_FOG_NEAR_RATIO = 0.57;
 const VIEW_RANGE_FOG_FAR_RATIO = 1.1;
+const MAX_VIEW_DISTANCE_PERCENT = 200;
 let viewRangeRefreshTimer = 0;
 let worldRegenerationInProgress = false;
 
@@ -1680,10 +1682,12 @@ async function regenerateWorld() {
     32,
     320,
   );
-  const terrainRangeMeters = Number(terrainRangeSlider.value);
+  const terrainRangeMeters = Math.round(
+    diameterMeters * Number(terrainRangeSlider.value) / 100,
+  );
   nextConfig.streaming.visualDistanceMeters = terrainRangeMeters;
   nextConfig.streaming.sceneryDistanceMeters = Math.min(
-    Number(sceneryRangeSlider.value),
+    Math.round(diameterMeters * Number(sceneryRangeSlider.value) / 100),
     terrainRangeMeters,
   );
   nextConfig.streaming.fogNearMeters = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
@@ -1773,6 +1777,10 @@ for (const input of worldSettingInputs) {
   input.addEventListener('input', () => {
     updateWorldSettingOutput(input);
     updateWorldSettingsDirty();
+    if (input === worldDiameterSlider) {
+      updateTerrainRange();
+      updateSceneryRange();
+    }
   });
 }
 regenerateWorldButton?.addEventListener('click', regenerateWorld);
@@ -1862,11 +1870,42 @@ function updateStreamingHud() {
   }
 }
 
+function selectedDiameterMeters() {
+  const stagedDiameter = Number(worldDiameterSlider?.value);
+  if (Number.isFinite(stagedDiameter) && stagedDiameter > 0) return stagedDiameter;
+  return Number(world?.config.surface.diameterMeters) || 2000;
+}
+
+function diameterIsStaged() {
+  return Boolean(world && worldDiameterSlider)
+    && Number(worldDiameterSlider.value) !== Number(world.config.surface.diameterMeters);
+}
+
+function distanceMetersFromPercentage(slider, diameterMeters = selectedDiameterMeters()) {
+  return Math.round(diameterMeters * Number(slider.value) / 100);
+}
+
+function updateSceneryRangeMaximum() {
+  const minimum = Number(sceneryRangeSlider.min) || 10;
+  const sceneryMaximum = Math.max(
+    minimum,
+    Math.min(MAX_VIEW_DISTANCE_PERCENT, Number(terrainRangeSlider.value)),
+  );
+  sceneryRangeSlider.max = String(sceneryMaximum);
+  document.querySelector('#scenery-range-max').textContent = `${sceneryMaximum}%`;
+  if (Number(sceneryRangeSlider.value) > sceneryMaximum) {
+    sceneryRangeSlider.value = String(sceneryMaximum);
+    updateSceneryRange();
+  }
+}
+
 function updateTerrainRange() {
-  const terrainRangeMeters = Number(terrainRangeSlider.value);
-  terrainRangeValue.value = `${terrainRangeMeters.toLocaleString()} m`;
+  const terrainPercent = Number(terrainRangeSlider.value);
+  const terrainRangeMeters = distanceMetersFromPercentage(terrainRangeSlider);
+  terrainRangeValue.value = `${terrainPercent}% · ${terrainRangeMeters.toLocaleString()} m`;
   terrainRangeValue.textContent = terrainRangeValue.value;
-  if (!world) return;
+  updateSceneryRangeMaximum();
+  if (!world || diameterIsStaged()) return;
 
   world.config.streaming.visualDistanceMeters = terrainRangeMeters;
   if (scene.fog) {
@@ -1875,25 +1914,15 @@ function updateTerrainRange() {
   }
   camera.far = Math.max(world.hullRadius * 2 + 420, terrainRangeMeters * 1.2);
   camera.updateProjectionMatrix();
-  const sceneryStep = Number(sceneryRangeSlider.step) || 50;
-  const sceneryMaximum = Math.max(
-    Number(sceneryRangeSlider.min) || 200,
-    Math.floor(terrainRangeMeters / sceneryStep) * sceneryStep,
-  );
-  sceneryRangeSlider.max = String(sceneryMaximum);
-  document.querySelector('#scenery-range-max').textContent = `${sceneryMaximum.toLocaleString()} m`;
-  if (Number(sceneryRangeSlider.value) > sceneryMaximum) {
-    sceneryRangeSlider.value = String(sceneryMaximum);
-    updateSceneryRange();
-  }
   updateStreamingHud();
 }
 
 function updateSceneryRange() {
-  const sceneryRangeMeters = Number(sceneryRangeSlider.value);
-  sceneryRangeValue.value = `${sceneryRangeMeters.toLocaleString()} m`;
+  const sceneryPercent = Number(sceneryRangeSlider.value);
+  const sceneryRangeMeters = distanceMetersFromPercentage(sceneryRangeSlider);
+  sceneryRangeValue.value = `${sceneryPercent}% · ${sceneryRangeMeters.toLocaleString()} m`;
   sceneryRangeValue.textContent = sceneryRangeValue.value;
-  if (!world) return;
+  if (!world || diameterIsStaged()) return;
   world.config.streaming.sceneryDistanceMeters = sceneryRangeMeters;
   updateStreamingHud();
 }
@@ -1901,6 +1930,7 @@ function updateSceneryRange() {
 function scheduleViewRangeRefresh(immediate = false) {
   clearTimeout(viewRangeRefreshTimer);
   viewRangeRefreshTimer = 0;
+  if (diameterIsStaged()) return;
   if (immediate) {
     if (world) {
       reconcileChunks();
@@ -2643,8 +2673,12 @@ async function start() {
     document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m habitat diameter`;
     syncWorldSettingsControls();
     scene.fog = new THREE.Fog(interiorBackground, config.streaming.fogNearMeters, config.streaming.fogFarMeters);
-    terrainRangeSlider.value = String(config.streaming.visualDistanceMeters || 1600);
-    sceneryRangeSlider.value = String(config.streaming.sceneryDistanceMeters || 800);
+    terrainRangeSlider.value = String(Math.round(
+      config.streaming.visualDistanceMeters / config.surface.diameterMeters * 100,
+    ));
+    sceneryRangeSlider.value = String(Math.round(
+      config.streaming.sceneryDistanceMeters / config.surface.diameterMeters * 100,
+    ));
     updateTerrainRange();
     updateSceneryRange();
     document.querySelector('#touch-controls').hidden = !isTouch;
