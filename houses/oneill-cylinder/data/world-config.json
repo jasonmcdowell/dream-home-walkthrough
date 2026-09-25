@@ -10,10 +10,8 @@
     "axialLengthMeters": 8192
   },
   "streaming": {
-    "visualDistanceMeters": 3500,
-    "sceneryDistanceMeters": 3500,
-    "fogNearMeters": 1995,
-    "fogFarMeters": 3850,
+    "visualDistanceMeters": 9011,
+    "sceneryDistanceMeters": 9011,
     "terrainSegments": 12,
     "chunksBuiltPerFrame": 2,
     "sceneryBuiltPerFrame": 2

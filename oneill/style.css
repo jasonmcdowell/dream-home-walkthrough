@@ -27,14 +27,23 @@ body { touch-action: none; }
 #world-hud {
   position: fixed;
   z-index: 3;
-  left: 18px;
-  top: 58px;
-  display: grid;
-  justify-items: start;
-  gap: 6px;
-  max-width: calc(100vw - 36px);
-  pointer-events: none;
+  left: 16px;
+  right: 16px;
+  top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+  pointer-events: auto;
 }
+
+#world-hud::-webkit-scrollbar { display: none; }
 
 .eyebrow {
   margin: 0 0 6px;
@@ -49,8 +58,9 @@ h1, h2, p { margin-top: 0; }
 #heading-compass {
   position: fixed;
   z-index: 3;
-  top: 112px;
+  top: auto;
   right: 18px;
+  bottom: 70px;
   display: grid;
   justify-items: center;
   gap: 6px;
@@ -171,13 +181,12 @@ h1, h2, p { margin-top: 0; }
 }
 
 #info-toggle {
-  position: fixed;
+  position: relative;
   z-index: 4;
-  top: 16px;
-  left: 18px;
+  flex: 0 0 48px;
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 48px;
+  height: 48px;
   place-items: center;
   border: 1px solid rgb(255 255 255 / 65%);
   border-radius: 50%;
@@ -198,8 +207,8 @@ h1, h2, p { margin-top: 0; }
 #info-panel {
   position: fixed;
   z-index: 7;
-  top: 59px;
-  left: 18px;
+  top: 68px;
+  left: 16px;
   width: min(300px, calc(100vw - 36px));
   max-height: min(65vh, 540px);
   overflow-y: auto;
@@ -266,9 +275,9 @@ h1, h2, p { margin-top: 0; }
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 30px;
-  max-width: 100%;
-  padding: 5px 10px;
+  flex: 0 0 auto;
+  height: 48px;
+  padding: 0 10px;
   border: 1px solid rgb(255 255 255 / 26%);
   border-radius: 999px;
   background: rgb(24 39 35 / 66%);
@@ -300,8 +309,9 @@ h1, h2, p { margin-top: 0; }
   display: flex;
   align-items: center;
   gap: 7px;
-  min-height: 27px;
-  padding: 4px 9px;
+  flex: 0 0 auto;
+  height: 48px;
+  padding: 0 9px;
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 999px;
   background: rgb(24 39 35 / 57%);
@@ -338,8 +348,9 @@ h1, h2, p { margin-top: 0; }
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 29px;
-  padding: 5px 9px;
+  flex: 0 0 auto;
+  height: 48px;
+  padding: 0 9px;
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 999px;
   background: rgb(24 39 35 / 59%);
@@ -380,15 +391,16 @@ h1, h2, p { margin-top: 0; }
 }
 
 #day-night-hud {
-  position: fixed;
-  z-index: 3;
-  top: 302px;
-  right: 18px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(138px, auto) minmax(170px, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: 10px;
+  flex: 1 0 430px;
+  min-width: 430px;
+  max-width: 760px;
+  height: 48px;
+  margin-left: 0;
+  padding: 0 12px;
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 10px;
   background: rgb(24 39 35 / 62%);
@@ -400,7 +412,8 @@ h1, h2, p { margin-top: 0; }
 
 #day-night-labels {
   display: grid;
-  gap: 3px;
+  gap: 2px;
+  min-width: 0;
 }
 
 #day-night-state {
@@ -431,6 +444,80 @@ h1, h2, p { margin-top: 0; }
   white-space: nowrap;
 }
 
+#day-night-chart {
+  position: relative;
+  align-self: center;
+  height: 38px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#day-night-curve {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.cycle-guide {
+  stroke: rgb(209 220 207 / 13%);
+  stroke-width: .7;
+}
+
+#day-night-curve-area {
+  fill: url(#cycle-curve-fill);
+}
+
+#day-night-curve-line {
+  fill: none;
+  stroke: #d8c18d;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.cycle-now-line {
+  stroke: rgb(241 244 226 / 56%);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
+#day-night-now-dot {
+  fill: #f4e6b9;
+  stroke: #263b34;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.cycle-now-label,
+.cycle-edge-label {
+  position: absolute;
+  z-index: 1;
+  color: #b9c8bb;
+  font-size: 6px;
+  font-weight: 750;
+  letter-spacing: .05em;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.cycle-now-label {
+  top: 0;
+  left: 50%;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: rgb(24 39 35 / 82%);
+  color: #f2e6c2;
+  transform: translateX(-50%);
+}
+
+.cycle-edge-label { bottom: 0; color: #93a79a; }
+.cycle-edge-start { left: 1px; }
+.cycle-edge-end { right: 1px; }
+
 #day-night-hud[data-mode="manual"] {
   border-color: rgb(223 179 111 / 48%);
   background: rgb(71 55 34 / 78%);
@@ -454,16 +541,17 @@ h1, h2, p { margin-top: 0; }
 #controller-status {
   position: fixed;
   z-index: 4;
-  top: 64px;
-  right: 18px;
-  max-width: min(44vw, 370px);
+  top: 68px;
+  left: 50%;
+  max-width: min(40vw, 370px);
   padding: 8px 12px;
   border: 1px solid rgb(255 255 255 / 40%);
   border-radius: 999px;
   background: rgb(28 43 40 / 72%);
   color: #f6f4e9;
   font-size: 10px;
-  text-align: right;
+  text-align: center;
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
@@ -510,11 +598,11 @@ h1, h2, p { margin-top: 0; }
 }
 
 #controls-toggle {
-  position: fixed;
+  position: relative;
   z-index: 4;
-  top: 16px;
-  right: 18px;
-  padding: 9px 13px;
+  flex: 0 0 auto;
+  height: 48px;
+  padding: 0 13px;
   border: 1px solid rgb(255 255 255 / 65%);
   border-radius: 999px;
   background: rgb(28 43 40 / 82%);
@@ -610,19 +698,6 @@ h1, h2, p { margin-top: 0; }
 }
 
 .view-range-label { margin-top: 20px; }
-
-.legacy-fill-toggle {
-  align-items: center;
-}
-
-.legacy-fill-toggle input {
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  margin: 0 2px 0 auto;
-  accent-color: #597a59;
-  cursor: pointer;
-}
 
 .view-range-note {
   margin: 8px 0 0;
@@ -858,24 +933,25 @@ h1, h2, p { margin-top: 0; }
 #touch-controls { display: none; }
 
 @media (pointer: coarse), (max-width: 700px) {
-  #world-hud { left: 12px; top: 54px; gap: 5px; max-width: calc(100vw - 24px); }
+  #world-hud { left: 8px; right: 8px; top: 8px; gap: 5px; max-width: calc(100vw - 16px); }
   .world-stats { font-size: 10px; }
-  #info-toggle { top: 12px; left: 12px; width: 32px; height: 32px; }
-  #info-panel { top: 52px; left: 12px; width: min(290px, calc(100vw - 24px)); max-height: 62vh; padding: 14px; }
+  #info-toggle { flex-basis: 44px; width: 44px; height: 44px; }
+  #info-panel { top: 60px; left: 8px; width: min(290px, calc(100vw - 16px)); max-height: 62vh; padding: 14px; }
   #environment-mode-link { min-height: 24px; margin-top: 7px; font-size: 9px; }
-  #movement-speed-hud { gap: 7px; min-height: 28px; padding: 5px 8px; }
+  #movement-speed-hud { gap: 7px; height: 44px; padding: 0 8px; }
   #movement-speed-value { font-size: 13px; }
   #movement-speed-mode { font-size: 6.5px; }
-  #gravity-hud { min-height: 26px; padding: 4px 8px; }
+  #gravity-hud { height: 44px; padding: 0 8px; }
   #gravity-value { font-size: 11px; }
-  #altimeter-hud { gap: 7px; min-height: 27px; padding: 4px 8px; }
+  #altimeter-hud { gap: 7px; height: 44px; padding: 0 8px; }
   #altimeter-value { font-size: 12px; }
   #altimeter-label, #altimeter-feet { font-size: 7px; }
-  #day-night-hud { top: 240px; right: 12px; gap: 6px; width: min(184px, calc(100vw - 24px)); padding: 6px 8px; }
+  #day-night-hud { grid-template-columns: 138px minmax(155px, 1fr) auto; gap: 7px; flex-basis: 390px; min-width: 390px; max-width: 540px; height: 44px; padding: 0 8px; }
   #day-night-state, #day-night-detail { font-size: 7px; }
   #seasonal-readout { font-size: 6.5px; }
   #tube-light-readout { font-size: 12px; }
-  #heading-compass { top: 91px; right: 12px; width: 116px; gap: 4px; padding: 8px; }
+  #day-night-chart { height: 34px; }
+  #heading-compass { top: auto; bottom: max(198px, calc(env(safe-area-inset-bottom) + 190px)); right: 12px; width: 116px; gap: 4px; padding: 8px; }
   #compass-rose { width: 78px; height: 78px; }
   .compass-axis-plus { top: 3px; }
   .compass-spinward { right: 2px; }
@@ -895,8 +971,8 @@ h1, h2, p { margin-top: 0; }
     text-align: center;
   }
   #tram-interact { width: 100%; min-height: 40px; }
-  #controls-toggle { top: 12px; right: 12px; padding: 8px 10px; font-size: 9px; }
-  #controller-status { top: 52px; right: 12px; max-width: 45vw; font-size: 8px; }
+  #controls-toggle { height: 44px; padding: 0 10px; font-size: 9px; }
+  #controller-status { top: 60px; right: auto; left: 50%; max-width: min(82vw, 370px); font-size: 8px; }
   #touch-controls:not([hidden]) { display: block; }
   #move-pad {
     position: fixed;

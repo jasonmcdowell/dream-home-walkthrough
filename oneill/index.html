@@ -6,12 +6,14 @@
   <meta name="theme-color" content="#c8d8cb">
   <title>O'Neill Cylinder · Space Habitat</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=brightness-curve-hud-20260925">
   <script type="importmap">{"imports":{"three":"../vendor/build/three.module.js","three/addons/":"../vendor/addons/"}}</script>
 </head>
 <body>
   <canvas id="world" aria-label="First-person procedural O'Neill cylinder environment"></canvas>
   <header id="world-hud" aria-label="Live habitat instruments">
+    <button id="info-toggle" type="button" aria-controls="info-panel" aria-expanded="false" aria-label="World information" title="World information">i</button>
+    <button id="controls-toggle" type="button" aria-controls="controls-panel" aria-expanded="false">CONTROLS</button>
     <div id="movement-speed-hud" aria-label="Current movement speed">
       <span id="movement-speed-mode">WALKING</span>
       <output id="movement-speed-value">4.6 m/s</output>
@@ -29,8 +31,34 @@
       </div>
       <span class="instrument-sr-only" id="altimeter-reference">Above the nearest ground</span>
     </div>
+    <div id="day-night-hud" aria-label="Habitat light cycle">
+      <div id="day-night-labels">
+        <span id="day-night-state">DAYLIGHT · CYCLE</span>
+        <span id="day-night-detail">Day 01 / 30 · New moon</span>
+        <span id="seasonal-readout">Spring · 12.0 h daylight · 84% peak</span>
+      </div>
+      <div id="day-night-chart" role="img" aria-label="Moving 12-minute brightness curve; the fixed center marker shows the current cycle time">
+        <span class="cycle-edge-label cycle-edge-start">−6m</span>
+        <svg id="day-night-curve" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="cycle-curve-fill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#d7bc81" stop-opacity=".25" />
+              <stop offset="100%" stop-color="#d7bc81" stop-opacity=".015" />
+            </linearGradient>
+          </defs>
+          <line class="cycle-guide" x1="0" y1="9" x2="240" y2="9" />
+          <line class="cycle-guide" x1="0" y1="35" x2="240" y2="35" />
+          <path id="day-night-curve-area" />
+          <path id="day-night-curve-line" />
+          <line class="cycle-now-line" x1="120" y1="3" x2="120" y2="35" />
+          <circle id="day-night-now-dot" cx="120" cy="9" r="3.2" />
+        </svg>
+        <span class="cycle-now-label">NOW</span>
+        <span class="cycle-edge-label cycle-edge-end">+6m</span>
+      </div>
+      <output id="tube-light-readout">100.0%</output>
+    </div>
   </header>
-  <button id="info-toggle" type="button" aria-controls="info-panel" aria-expanded="false" aria-label="World information" title="World information">i</button>
   <aside id="info-panel" hidden role="dialog" aria-modal="false" aria-labelledby="info-title">
     <div class="info-heading">
       <div>
@@ -61,15 +89,6 @@
     <output id="heading-reading">+Z endcap · 000°</output>
     <span id="heading-detail">+s is spinward</span>
   </aside>
-  <div id="day-night-hud" aria-label="Habitat light cycle">
-    <div id="day-night-labels">
-      <span id="day-night-state">DAYLIGHT · CYCLE</span>
-      <span id="day-night-detail">Day 01 / 30 · New moon</span>
-      <span id="seasonal-readout">Spring · 12.0 h daylight · 84% peak</span>
-    </div>
-    <output id="tube-light-readout">100.0%</output>
-  </div>
-  <button id="controls-toggle" type="button" aria-controls="controls-panel" aria-expanded="false">CONTROLS</button>
   <div id="hint">WASD / arrows / left stick move · Drag / right stick look · Shift / L3 run · Space / A jump; double-tap to fly · V / X / Square flight style · I info · H / R1 / Options controls</div>
   <div id="controller-status" hidden aria-live="polite"></div>
   <div id="tram-prompt" hidden aria-live="polite">
@@ -132,24 +151,19 @@
         <figcaption>Earth-equivalent daylight, seasonal daytime peak, and the repeating lunar night minimum.</figcaption>
       </figure>
     </details>
-    <label class="run-speed-label view-range-label legacy-fill-toggle" for="legacy-scene-fill">
-      <span>Supplemental sky / ground fill</span>
-      <input id="legacy-scene-fill" type="checkbox" aria-describedby="legacy-scene-fill-note">
-    </label>
-    <p class="view-range-note" id="legacy-scene-fill-note">Off by default. Adds the previous hemisphere and warm global fill lights for comparison. The center-tube slider dims these too.</p>
     <label class="run-speed-label view-range-label" for="terrain-range">
-      <span>Terrain viewing distance (% of diameter)</span>
-      <output id="terrain-range-value" for="terrain-range">175% · 3,500 m</output>
+      <span>Terrain viewing distance (% of largest dimension)</span>
+      <output id="terrain-range-value" for="terrain-range">110% · 9,011 m</output>
     </label>
-    <input id="terrain-range" type="range" min="10" max="200" step="5" value="175">
-    <div class="speed-range-labels"><span>10%</span><span>200%</span></div>
+    <input id="terrain-range" type="range" min="10" max="110" step="5" value="110">
+    <div class="speed-range-labels"><span>10%</span><span>110%</span></div>
     <label class="run-speed-label view-range-label" for="scenery-range">
-      <span>Buildings, trees &amp; roads (% of diameter)</span>
-      <output id="scenery-range-value" for="scenery-range">175% · 3,500 m</output>
+      <span>Buildings, trees &amp; roads (% of largest dimension)</span>
+      <output id="scenery-range-value" for="scenery-range">110% · 9,011 m</output>
     </label>
-    <input id="scenery-range" type="range" min="10" max="200" step="5" value="175">
-    <div class="speed-range-labels"><span>10%</span><span>200%</span></div>
-    <p class="view-range-note">The sliders are independent. Scenery can only appear over loaded terrain, so set terrain distance at least as far as scenery to use its full range.</p>
+    <input id="scenery-range" type="range" min="10" max="110" step="5" value="110">
+    <div class="speed-range-labels"><span>10%</span><span>110%</span></div>
+    <p class="view-range-note">Percentages use whichever is larger: habitat length or diameter. The sliders are independent. Scenery can only appear over loaded terrain, so set terrain distance at least as far as scenery to use its full range.</p>
     <details id="world-generation-panel" open>
       <summary>Procedural world settings</summary>
       <p class="world-generation-intro">Changes are staged while you explore. Regenerate to rebuild the same seed with these settings.</p>
@@ -246,7 +260,7 @@
       <div><dt>LT / L2 · RT / R2</dt><dd>Throttle · brake; speed holds when released</dd></div>
       <div><dt>E / Y / Triangle</dt><dd>Board / leave the center-axis tram</dd></div>
     </dl>
-    <p class="controls-footer">The axial white light panels are the active sunlight approximation. The automatic 12-minute day/night cycle follows Pacific local time. At the spring and autumn equinoxes it has five minutes of daylight, one minute each for dusk and dawn, and five minutes of night; the Los Angeles seasonal profile lengthens daylight in summer and shortens it in winter while keeping each twilight fade at one minute. Peak daytime tube brightness also varies with the noon solar elevation at 34.0522° N. A repeating 72-hour cylinder year starts at spring equinox on a Pacific three-day calendar boundary. The six-hour lunar cycle sets the night minimum smoothly from 1% at new moon to 15% at full moon and back; the HUD shows the current cycle day and light level. Move the center-tube slider to pause the schedule and set a manual brightness; choose Resume day-night cycle to return to the current Pacific-time phase. Terrain, trees, buildings, roads, water, and the low-resolution far-surface mesh respond to direct lighting; they do not receive bounced light or cast shadows. The center-tube slider also darkens the interior backdrop and fog. Building windows brighten as the tube dims, but they do not light nearby surfaces. The supplemental sky / ground fill checkbox adds the former hemisphere and warm global light for comparison; the slider dims those too. The gravity field is 9.8 m/s² at local ground and decreases linearly to 3 m/s² at the axis; powered flight suspends gravity. The soil-depth setting is the shell depth behind the generated ground surface. The compass uses 0° for the +Z endcap and increases toward spinward; −Z is the opposite endcap. At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside Minecraft mode, Space or A / Cross rises and Ctrl or B / Circle lowers. Camera-directed flight uses the same mapping inside and outside: W / left stick forward follows the camera, S reverses, A / D strafe along camera-right, and aiming up or down makes you climb or dive. Outside has no habitat gravity. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
+    <p class="controls-footer">The axial white light panels are the active sunlight approximation. The existing outer and mid-radius end-cap structural rings also emit light and have localized fixtures nearby. The center-tube slider and automatic cycle control both sets of lights. The automatic 12-minute day/night cycle follows Pacific local time. At the spring and autumn equinoxes it has five minutes of daylight, one minute each for dusk and dawn, and five minutes of night; the Los Angeles seasonal profile lengthens daylight in summer and shortens it in winter while keeping each twilight fade at one minute. Peak daytime tube brightness also varies with the noon solar elevation at 34.0522° N. A repeating 72-hour cylinder year starts at spring equinox on a Pacific three-day calendar boundary. The six-hour lunar cycle sets the night minimum smoothly from 1% at new moon to 15% at full moon and back; the HUD shows the current cycle day and light level. Its longer cycle widget plots the rolling 12-minute brightness curve with a fixed marker at the current time. Move the center-tube slider to pause the schedule and set a manual brightness; choose Resume day-night cycle to return to the current Pacific-time phase. Terrain, trees, buildings, roads, water, and the low-resolution far-surface mesh receive direct light from nearby point sources; they do not receive bounced light or cast shadows. Interior fog fades distant surfaces toward a muted haze color that follows tube brightness. It is a visual scattering approximation, not a light source, and it does not illuminate surfaces; at night the haze scattering is 20% of its daytime strength. Building windows brighten as the tube dims, but they do not light nearby surfaces. There are no hemisphere or directional fill lights. The gravity field is 9.8 m/s² at local ground and decreases linearly to 3 m/s² at the axis; powered flight suspends gravity. The soil-depth setting is the shell depth behind the generated ground surface. The compass uses 0° for the +Z endcap and increases toward spinward; −Z is the opposite endcap. At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside Minecraft mode, Space or A / Cross rises and Ctrl or B / Circle lowers. Camera-directed flight uses the same mapping inside and outside: W / left stick forward follows the camera, S reverses, A / D strafe along camera-right, and aiming up or down makes you climb or dive. Outside has no habitat gravity. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
   </aside>
   <div id="loading" role="status">
     <div class="loading-card">
@@ -256,6 +270,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=peripheral-hud-20260925"></script>
+  <script type="module" src="app.js?v=habitat-view-range-110-percent-20260925"></script>
 </body>
 </html>

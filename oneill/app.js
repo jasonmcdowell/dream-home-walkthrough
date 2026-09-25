@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createBuildingArchetypeGeometries } from '../houses/oneill-cylinder/tools/asset-kit.js';
-import { createExteriorStructures } from '../houses/oneill-cylinder/tools/exterior-kit.js';
+import { createExteriorStructures } from '../houses/oneill-cylinder/tools/exterior-kit.js?v=endcap-clearance-20260925';
 import { CylinderWorld, makeSurfaceQuaternion, seedFromString } from '../houses/oneill-cylinder/tools/world-generator.js?v=altimeter-jump-20260924';
 import {
   loadTorusHomeAssets,
@@ -62,22 +62,13 @@ renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = false;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xaec7c8);
+scene.background = new THREE.Color(0x0b1215);
 const camera = new THREE.PerspectiveCamera(
   combinedHomeMode ? 55 : 64,
   innerWidth / innerHeight,
   combinedHomeMode ? 0.04 : 0.1,
   5000,
 );
-const hemisphere = new THREE.HemisphereLight(0xe5f1ec, 0x6e765b, isTouch ? 2.05 : 1.85);
-hemisphere.visible = false;
-scene.add(hemisphere);
-const sunlight = new THREE.DirectionalLight(0xffedcf, 2.2);
-sunlight.visible = false;
-sunlight.position.set(-12, 26, -20);
-sunlight.target.position.set(0, 0, 0);
-scene.add(sunlight, sunlight.target);
-
 const terrainMaterial = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 0.98,
@@ -140,9 +131,11 @@ const backdropMaterial = new THREE.MeshLambertMaterial({
   fog: true,
   depthWrite: false,
 });
-const dayInteriorBackground = new THREE.Color(0xaec7c8);
-const interiorBackground = dayInteriorBackground.clone();
-const nightInteriorBackground = new THREE.Color(0x070c12);
+// Fog is a visual scattering approximation: it blends distant surfaces toward
+// a muted haze color that follows tube output, but it does not light surfaces.
+const nightInteriorAtmosphere = new THREE.Color(0x111a1d);
+const dayInteriorAtmosphere = new THREE.Color(0x536d68);
+const interiorBackground = nightInteriorAtmosphere.clone();
 const exteriorBackground = new THREE.Color(0x03080d);
 const airlockFrameMaterial = new THREE.MeshStandardMaterial({
   color: 0x65716f,
@@ -197,6 +190,13 @@ const axisBeaconMaterial = new THREE.MeshStandardMaterial({
   emissive: 0xe9ebdf,
   emissiveIntensity: 1.15,
 });
+const endcapRingMaterial = new THREE.MeshStandardMaterial({
+  color: 0x94a9a6,
+  emissive: 0xd6f2ed,
+  emissiveIntensity: 0.42,
+  metalness: 0.38,
+  roughness: 0.38,
+});
 const buildingWindowMaterials = [
   new THREE.MeshStandardMaterial({
     color: 0x45372b,
@@ -238,6 +238,7 @@ const persistentWorldMaterials = new Set([
   axisFrameMaterial,
   axisDiffuserMaterial,
   axisBeaconMaterial,
+  endcapRingMaterial,
   ...buildingWindowMaterials,
   ...Object.values(buildingMaterials),
 ]);
@@ -256,6 +257,7 @@ let pendingSceneryKeys = [];
 let landmarkMeshes = [];
 let landmarkWindowGroups = [];
 let centralTubeLights = [];
+let endcapLights = [];
 let centerTubeLightLevel = 1;
 let backdrop;
 let exteriorStars;
@@ -345,6 +347,7 @@ const DEFAULT_FLIGHT_SPEED_MPS = 100;
 const AXIS_GRAVITY_MPS2 = 3;
 const GROUND_GRAVITY_MPS2 = 9.8;
 const CENTER_TUBE_FILL_INTENSITY = 0.42;
+const HABITAT_LIGHT_BRIGHTNESS_SCALE = 3;
 const JUMP_TAKEOFF_VELOCITY_MPS = 3.0; // About 0.46 m of rise at ground-level gravity.
 const ALTIMETER_UPDATE_MS = 80;
 const GAMEPAD_ACCELERATION_FRACTION = 0.14;
@@ -487,10 +490,55 @@ function addExteriorStars() {
 }
 
 function addCylinderEndcaps() {
+  endcapLights = [];
   world.hullRadius = world.hullRadius || world.radius + (world.groundDepth || 500);
-  worldStructureRoot.add(createExteriorStructures(THREE, world));
+  const endcapStructure = createExteriorStructures(THREE, world);
+  const luminousRingNames = new Set([
+    'reinforced end-cap perimeter rings',
+    'mid-radius end-cap truss braces',
+  ]);
+  endcapStructure.traverse(object => {
+    if (object.isInstancedMesh && luminousRingNames.has(object.name)) {
+      // Keep the existing ring geometry; its material emits at the tube level.
+      object.material = endcapRingMaterial;
+    }
+  });
+  worldStructureRoot.add(endcapStructure);
   for (const sign of [-1, 1]) addAirlock(sign);
   addExteriorStars();
+
+  // Local fixtures sit on both existing end-cap rings. Their finite range
+  // lights only the cap neighborhood; the fog/background adds no illumination.
+  endcapLights = [];
+  const emittingRings = [
+    { name: 'outer', radius: world.hullRadius - 24, axialOffset: 48 },
+    { name: 'mid-radius', radius: world.hullRadius * 0.7, axialOffset: 36 },
+  ];
+  const lightIntensity = world.radius * world.radius * CENTER_TUBE_FILL_INTENSITY
+    * 0.01 * HABITAT_LIGHT_BRIGHTNESS_SCALE;
+  for (const sign of [-1, 1]) {
+    for (const ring of emittingRings) {
+      for (const index of [0, 2]) {
+        const angle = index * Math.PI / 2;
+        const light = new THREE.PointLight(
+          0xf6fbff,
+          lightIntensity * centerTubeLightLevel,
+          Math.max(350, world.radius * 1.05),
+          2,
+        );
+        light.position.set(
+          Math.cos(angle) * ring.radius,
+          Math.sin(angle) * ring.radius,
+          sign * (world.axialHalfLength + ring.axialOffset),
+        );
+        light.name = `localized ${ring.name} end-cap light ${sign > 0 ? '+Z' : '−Z'} ${index + 1}`;
+        light.userData.baseIntensity = lightIntensity;
+        light.castShadow = false;
+        worldStructureRoot.add(light);
+        endcapLights.push(light);
+      }
+    }
+  }
 }
 
 function addLandmarks() {
@@ -696,28 +744,29 @@ function addCentralAxisTube() {
     worldStructureRoot.add(transition);
   }
 
-  // A compact set of shadowless radial fills gives the white diffusers a
-  // broad sunlight effect without the cost of hundreds of point lights.
+  // Sample the distributed tube panels with a small set of local point lights.
+  // Inverse-square falloff avoids global directional or hemisphere fill.
   const lightRig = new THREE.Group();
-  lightRig.name = 'radial habitat sunlight fill';
-  for (let index = 0; index < 8; index++) {
-    const angle = index * Math.PI / 4;
-    const light = new THREE.DirectionalLight(0xf6fbff, CENTER_TUBE_FILL_INTENSITY);
-    light.intensity *= centerTubeLightLevel;
-    light.position.set(
-      Math.cos(angle) * (AXIS_TUBE_RADIUS_M - 1),
-      Math.sin(angle) * (AXIS_TUBE_RADIUS_M - 1),
-      0,
+  lightRig.name = 'localized center-tube panel lights';
+  const lightCount = THREE.MathUtils.clamp(Math.ceil((tubeEnd - tubeStart) / 1100), 4, 12);
+  const lightSpacing = (tubeEnd - tubeStart) / lightCount;
+  // PointLight intensity is in candela and falls with inverse-square distance.
+  // Scaling by radius squared keeps wall illumination consistent as diameter
+  // changes; avoid large artistic multipliers that wash out the whole scene.
+  const lightIntensity = world.radius * world.radius * CENTER_TUBE_FILL_INTENSITY
+    * HABITAT_LIGHT_BRIGHTNESS_SCALE;
+  for (let index = 0; index < lightCount; index++) {
+    const light = new THREE.PointLight(
+      0xf6fbff,
+      lightIntensity * centerTubeLightLevel,
+      Math.max(AXIS_TUBE_RADIUS_M * 5, world.radius * 2.05),
+      2,
     );
-    light.target.position.set(
-      Math.cos(angle) * world.radius,
-      Math.sin(angle) * world.radius,
-      0,
-    );
+    light.position.set(0, 0, tubeStart + (index + 0.5) * lightSpacing);
     light.castShadow = false;
-    light.name = `diffuse plant-light fill ${index + 1}`;
-    light.target.name = `plant-light aim ${index + 1}`;
-    lightRig.add(light, light.target);
+    light.name = `localized center-tube plant light ${index + 1}`;
+    light.userData.baseIntensity = lightIntensity;
+    lightRig.add(light);
     centralTubeLights.push(light);
   }
   worldStructureRoot.add(lightRig);
@@ -1390,6 +1439,7 @@ function disposeWorldStructures() {
   landmarkMeshes = [];
   landmarkWindowGroups = [];
   centralTubeLights = [];
+  endcapLights = [];
   exteriorStars = null;
   tramRoot = null;
 }
@@ -1988,8 +2038,10 @@ const dayNightState = document.querySelector('#day-night-state');
 const dayNightDetail = document.querySelector('#day-night-detail');
 const seasonalReadout = document.querySelector('#seasonal-readout');
 const tubeLightReadout = document.querySelector('#tube-light-readout');
+const dayNightCurveLine = document.querySelector('#day-night-curve-line');
+const dayNightCurveArea = document.querySelector('#day-night-curve-area');
+const dayNightNowDot = document.querySelector('#day-night-now-dot');
 const resumeDayNightCycleButton = document.querySelector('#resume-day-night-cycle');
-const legacySceneFillToggle = document.querySelector('#legacy-scene-fill');
 const terrainRangeSlider = document.querySelector('#terrain-range');
 const terrainRangeValue = document.querySelector('#terrain-range-value');
 const sceneryRangeSlider = document.querySelector('#scenery-range');
@@ -1998,8 +2050,13 @@ const worldDiameterSlider = document.querySelector('#world-diameter');
 const worldSettingInputs = Array.from(document.querySelectorAll('[data-world-setting]'));
 const worldSettingsStatus = document.querySelector('#world-settings-status');
 const regenerateWorldButton = document.querySelector('#regenerate-world');
-const VIEW_RANGE_FOG_NEAR_RATIO = 0.57;
-const VIEW_RANGE_FOG_FAR_RATIO = 1.1;
+const VIEW_RANGE_FOG_DISTANCE_RATIO = 1;
+const DAY_FOG_OPACITY_AT_RANGE = 0.45;
+const NIGHT_FOG_SCATTER_FRACTION = 0.2;
+const DAY_NIGHT_CURVE_REFRESH_MS = 160;
+const DAY_NIGHT_CURVE_WIDTH = 240;
+const DAY_NIGHT_CURVE_STEPS = 48;
+let lastDayNightCurveUpdateMs = Number.NEGATIVE_INFINITY;
 let viewRangeRefreshTimer = 0;
 let worldRegenerationInProgress = false;
 let manualTubeLightOverride = false;
@@ -2031,6 +2088,44 @@ function describeMoonPhase(progress) {
   return phases[Math.round(progress * phases.length) % phases.length];
 }
 
+function getCycleLighting(cycleTime, nightMinimum, daylightPeak, daylightMinutes) {
+  const daylightPlateauSeconds = daylightMinutes * 60 - TWILIGHT_SECONDS;
+  const nightPlateauSeconds = DAY_NIGHT_CYCLE_SECONDS - daylightMinutes * 60 - TWILIGHT_SECONDS;
+  const duskStart = daylightPlateauSeconds;
+  const nightStart = duskStart + TWILIGHT_SECONDS;
+  const dawnStart = nightStart + nightPlateauSeconds;
+  const smoothStep = value => value * value * (3 - 2 * value);
+  if (cycleTime < duskStart) return { phase: 'Daylight', level: daylightPeak };
+  if (cycleTime < nightStart) {
+    const transition = (cycleTime - duskStart) / TWILIGHT_SECONDS;
+    return { phase: 'Dusk', level: daylightPeak + (nightMinimum - daylightPeak) * smoothStep(transition) };
+  }
+  if (cycleTime < dawnStart) return { phase: 'Night', level: nightMinimum };
+  const transition = (cycleTime - dawnStart) / TWILIGHT_SECONDS;
+  return { phase: 'Dawn', level: nightMinimum + (daylightPeak - nightMinimum) * smoothStep(transition) };
+}
+
+function getInteriorFogDensity(rangeMeters, lightLevel = centerTubeLightLevel) {
+  const daytimeBlend = THREE.MathUtils.smoothstep(lightLevel, 0.15, 0.55);
+  const scatterFraction = NIGHT_FOG_SCATTER_FRACTION
+    + (1 - NIGHT_FOG_SCATTER_FRACTION) * daytimeBlend;
+  const opacityAtFarRange = DAY_FOG_OPACITY_AT_RANGE * scatterFraction;
+  const fadeDistance = Math.max(1, rangeMeters * VIEW_RANGE_FOG_DISTANCE_RATIO);
+  return Math.sqrt(-Math.log(1 - opacityAtFarRange)) / fadeDistance;
+}
+
+function updateInteriorFogDensity(rangeMeters = world?.config?.streaming?.visualDistanceMeters) {
+  if (!(scene.fog instanceof THREE.FogExp2) || !Number.isFinite(rangeMeters)) return;
+  scene.fog.density = getInteriorFogDensity(rangeMeters);
+}
+
+function setInteriorFog(rangeMeters) {
+  scene.fog = new THREE.FogExp2(
+    interiorBackground,
+    getInteriorFogDensity(rangeMeters),
+  );
+}
+
 function getDayNightSchedule(nowMs) {
   const pacificClock = getPacificClockSnapshot(nowMs);
   const pacificSeconds = pacificClock.secondsSinceMidnight;
@@ -2058,35 +2153,37 @@ function getDayNightSchedule(nowMs) {
   const seasonNames = ['Spring', 'Summer', 'Autumn', 'Winter'];
   const season = seasonNames[Math.floor(yearProgress * seasonNames.length) % seasonNames.length];
 
-  // Count half of each one-minute twilight toward the daylight span. This
-  // preserves the 12-minute total and the original 5/1/5/1 equinox schedule.
-  const daylightPlateauSeconds = daylightMinutes * 60 - TWILIGHT_SECONDS;
-  const nightPlateauSeconds = DAY_NIGHT_CYCLE_SECONDS - daylightMinutes * 60 - TWILIGHT_SECONDS;
   const cycleTime = mod(pacificSeconds, DAY_NIGHT_CYCLE_SECONDS);
   const dayIndex = Math.floor(lunarElapsedSeconds / DAY_NIGHT_CYCLE_SECONDS) + 1;
   const moonPhase = describeMoonPhase(lunarProgress);
-  const smoothStep = value => value * value * (3 - 2 * value);
-  const duskStart = daylightPlateauSeconds;
-  const nightStart = duskStart + TWILIGHT_SECONDS;
-  const dawnStart = nightStart + nightPlateauSeconds;
-  let phase;
-  let level;
-  if (cycleTime < duskStart) {
-    phase = 'Daylight';
-    level = daylightPeak;
-  } else if (cycleTime < nightStart) {
-    phase = 'Dusk';
-    const transition = (cycleTime - duskStart) / TWILIGHT_SECONDS;
-    level = daylightPeak + (nightMinimum - daylightPeak) * smoothStep(transition);
-  } else if (cycleTime < dawnStart) {
-    phase = 'Night';
-    level = nightMinimum;
-  } else {
-    phase = 'Dawn';
-    const transition = (cycleTime - dawnStart) / TWILIGHT_SECONDS;
-    level = nightMinimum + (daylightPeak - nightMinimum) * smoothStep(transition);
+  // Count half of each one-minute twilight toward the daylight span. This
+  // preserves the 12-minute total and the original 5/1/5/1 equinox schedule.
+  const { level, phase } = getCycleLighting(cycleTime, nightMinimum, daylightPeak, daylightMinutes);
+  return { level, phase, cycleTime, dayIndex, moonPhase, nightMinimum, season, daylightHours, daylightMinutes, daylightPeak, yearProgress };
+}
+
+function updateDayNightCurve(schedule, nowMs) {
+  if (nowMs - lastDayNightCurveUpdateMs < DAY_NIGHT_CURVE_REFRESH_MS) return;
+  lastDayNightCurveUpdateMs = nowMs;
+  const points = [];
+  for (let index = 0; index <= DAY_NIGHT_CURVE_STEPS; index++) {
+    const x = DAY_NIGHT_CURVE_WIDTH * index / DAY_NIGHT_CURVE_STEPS;
+    const offsetSeconds = (x / DAY_NIGHT_CURVE_WIDTH - 0.5) * DAY_NIGHT_CYCLE_SECONDS;
+    const sampleTime = mod(schedule.cycleTime + offsetSeconds, DAY_NIGHT_CYCLE_SECONDS);
+    const { level } = getCycleLighting(
+      sampleTime,
+      schedule.nightMinimum,
+      schedule.daylightPeak,
+      schedule.daylightMinutes,
+    );
+    const y = 35 - level * 26;
+    points.push([x, y]);
   }
-  return { level, phase, dayIndex, moonPhase, nightMinimum, season, daylightHours, daylightMinutes, daylightPeak, yearProgress };
+  const linePath = points.map(([x, y], index) => `${index ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
+  const areaPath = `M0,35 ${points.map(([x, y]) => `L${x.toFixed(2)},${y.toFixed(2)}`).join(' ')} L${DAY_NIGHT_CURVE_WIDTH},35 Z`;
+  dayNightCurveLine.setAttribute('d', linePath);
+  dayNightCurveArea.setAttribute('d', areaPath);
+  dayNightNowDot.setAttribute('cy', (35 - schedule.level * 26).toFixed(2));
 }
 
 function formatLightPercent(level) {
@@ -2101,26 +2198,27 @@ function applyCenterTubeLightLevel(level) {
   centerTubeLightValue.textContent = formatLightPercent(centerTubeLightLevel);
   tubeLightReadout.textContent = formatLightPercent(centerTubeLightLevel);
 
-  axisDiffuserMaterial.emissiveIntensity = 2.2 * centerTubeLightLevel;
-  axisBeaconMaterial.emissiveIntensity = 1.15 * centerTubeLightLevel;
-  hemisphere.intensity = (isTouch ? 2.05 : 1.85) * centerTubeLightLevel;
-  sunlight.intensity = 2.2 * centerTubeLightLevel;
-  for (const light of centralTubeLights) {
-    light.intensity = CENTER_TUBE_FILL_INTENSITY * centerTubeLightLevel;
+  axisDiffuserMaterial.emissiveIntensity = 2.2 * HABITAT_LIGHT_BRIGHTNESS_SCALE * centerTubeLightLevel;
+  axisBeaconMaterial.emissiveIntensity = 1.15 * HABITAT_LIGHT_BRIGHTNESS_SCALE * centerTubeLightLevel;
+  endcapRingMaterial.emissiveIntensity = 0.72 * HABITAT_LIGHT_BRIGHTNESS_SCALE * centerTubeLightLevel;
+  for (const light of [...centralTubeLights, ...endcapLights]) {
+    light.intensity = light.userData.baseIntensity * centerTubeLightLevel;
   }
   const nightLighting = Math.pow(1 - centerTubeLightLevel, 1.08);
   for (const material of buildingWindowMaterials) {
     material.emissiveIntensity = 0.035 + nightLighting * 3.1;
   }
   interiorBackground.lerpColors(
-    dayInteriorBackground,
-    nightInteriorBackground,
-    Math.pow(1 - centerTubeLightLevel, 0.82),
+    nightInteriorAtmosphere,
+    dayInteriorAtmosphere,
+    centerTubeLightLevel,
   );
+  updateInteriorFogDensity();
 }
 
 function updateDayNightCycle(nowMs = Date.now()) {
   const schedule = getDayNightSchedule(nowMs);
+  updateDayNightCurve(schedule, nowMs);
   if (!manualTubeLightOverride) {
     const sliderValue = String(Math.round(schedule.level * 100));
     if (centerTubeLightSlider.value !== sliderValue) centerTubeLightSlider.value = sliderValue;
@@ -2336,20 +2434,22 @@ async function regenerateWorld() {
     setSettingAtPath(nextConfig, input.dataset.worldSetting, Number(input.value));
   }
   const diameterMeters = Number(nextConfig.surface.diameterMeters);
+  const renderReferenceMeters = Math.max(
+    diameterMeters,
+    Number(nextConfig.surface.axialLengthMeters),
+  );
   nextConfig.surface.circumferentialChunks = THREE.MathUtils.clamp(
     Math.round(Math.PI * diameterMeters / 98),
     32,
     320,
   );
   const terrainRangeMeters = Math.round(
-    diameterMeters * Number(terrainRangeSlider.value) / 100,
+    renderReferenceMeters * Number(terrainRangeSlider.value) / 100,
   );
   nextConfig.streaming.visualDistanceMeters = terrainRangeMeters;
   nextConfig.streaming.sceneryDistanceMeters = Math.round(
-    diameterMeters * Number(sceneryRangeSlider.value) / 100,
+    renderReferenceMeters * Number(sceneryRangeSlider.value) / 100,
   );
-  nextConfig.streaming.fogNearMeters = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
-  nextConfig.streaming.fogFarMeters = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_FAR_RATIO);
 
   try {
     const nextWorld = new CylinderWorld(nextConfig, world.seed);
@@ -2398,12 +2498,8 @@ async function regenerateWorld() {
     clearTransientInput();
     updateRunButton();
 
-    scene.fog = new THREE.Fog(
-      interiorBackground,
-      nextConfig.streaming.fogNearMeters,
-      nextConfig.streaming.fogFarMeters,
-    );
-    camera.far = Math.max(world.hullRadius * 2 + 420, terrainRangeMeters * 1.2);
+    setInteriorFog(terrainRangeMeters);
+    camera.far = Math.max(camera.near + 1, terrainRangeMeters);
     camera.updateProjectionMatrix();
     document.querySelector('#seed').textContent = `Seed ${world.seed}`;
     document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m habitat diameter`;
@@ -2532,10 +2628,13 @@ function updateStreamingHud() {
   }
 }
 
-function selectedDiameterMeters() {
+function selectedRenderReferenceMeters() {
   const stagedDiameter = Number(worldDiameterSlider?.value);
-  if (Number.isFinite(stagedDiameter) && stagedDiameter > 0) return stagedDiameter;
-  return Number(world?.config.surface.diameterMeters) || 2000;
+  const diameterMeters = Number.isFinite(stagedDiameter) && stagedDiameter > 0
+    ? stagedDiameter
+    : Number(world?.config.surface.diameterMeters) || 2000;
+  const axialLengthMeters = Number(world?.config.surface.axialLengthMeters) || 8192;
+  return Math.max(diameterMeters, axialLengthMeters);
 }
 
 function diameterIsStaged() {
@@ -2543,8 +2642,8 @@ function diameterIsStaged() {
     && Number(worldDiameterSlider.value) !== Number(world.config.surface.diameterMeters);
 }
 
-function distanceMetersFromPercentage(slider, diameterMeters = selectedDiameterMeters()) {
-  return Math.round(diameterMeters * Number(slider.value) / 100);
+function distanceMetersFromPercentage(slider, referenceMeters = selectedRenderReferenceMeters()) {
+  return Math.round(referenceMeters * Number(slider.value) / 100);
 }
 
 function updateTerrainRange() {
@@ -2555,11 +2654,8 @@ function updateTerrainRange() {
   if (!world || diameterIsStaged()) return;
 
   world.config.streaming.visualDistanceMeters = terrainRangeMeters;
-  if (scene.fog) {
-    scene.fog.near = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_NEAR_RATIO);
-    scene.fog.far = Math.round(terrainRangeMeters * VIEW_RANGE_FOG_FAR_RATIO);
-  }
-  camera.far = Math.max(world.hullRadius * 2 + 420, terrainRangeMeters * 1.2);
+  updateInteriorFogDensity(terrainRangeMeters);
+  camera.far = Math.max(camera.near + 1, terrainRangeMeters);
   camera.updateProjectionMatrix();
   updateStreamingHud();
 }
@@ -2640,10 +2736,6 @@ flyingSpeedSlider.addEventListener('input', updateFlyingSpeed);
 flightModeSelect.addEventListener('change', () => setFlightMode(flightModeSelect.value));
 centerTubeLightSlider.addEventListener('input', overrideCenterTubeLightLevel);
 resumeDayNightCycleButton.addEventListener('click', resumeDayNightCycle);
-legacySceneFillToggle.addEventListener('change', () => {
-  hemisphere.visible = legacySceneFillToggle.checked;
-  sunlight.visible = legacySceneFillToggle.checked;
-});
 updateRunningSpeed();
 updateFlyingSpeed();
 updateDayNightCycle();
@@ -3422,8 +3514,8 @@ async function start() {
     let houseAssetsPromise = Promise.resolve({ assets: null });
     if (combinedHomeMode) {
       document.title = "Torus Home inside the O'Neill Cylinder";
-      document.querySelector('#world-hud .eyebrow').textContent = 'PLACED AND SPACES · TORUS HOME + CYLINDER';
-      document.querySelector('#world-hud h1').textContent = 'Torus Home';
+      document.querySelector('#info-panel .eyebrow').textContent = 'PLACED AND SPACES · TORUS HOME + CYLINDER';
+      document.querySelector('#info-title').textContent = 'Torus Home';
       torusHomeLoading = { house: 'starting', collision: 'starting' };
       houseAssetsPromise = loadTorusHomeAssets({
         visualUrl: '../torus-home/assets/dream-home.glb',
@@ -3444,7 +3536,9 @@ async function start() {
       }).then(assets => ({ assets }), error => ({ error }));
     }
 
-    const response = await fetch('../houses/oneill-cylinder/data/world-config.json');
+    const response = await fetch(
+      '../houses/oneill-cylinder/data/world-config.json?v=habitat-view-range-110-percent-20260925',
+    );
     if (!response.ok) throw new Error(`World settings could not be loaded (${response.status}).`);
     const config = await response.json();
     const seed = getSeed(config);
@@ -3465,12 +3559,18 @@ async function start() {
     document.querySelector('#seed').textContent = `Seed ${seed}`;
     document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m habitat diameter`;
     syncWorldSettingsControls();
-    scene.fog = new THREE.Fog(interiorBackground, config.streaming.fogNearMeters, config.streaming.fogFarMeters);
+    setInteriorFog(config.streaming.visualDistanceMeters);
     terrainRangeSlider.value = String(Math.round(
-      config.streaming.visualDistanceMeters / config.surface.diameterMeters * 100,
+      config.streaming.visualDistanceMeters / Math.max(
+        config.surface.diameterMeters,
+        config.surface.axialLengthMeters,
+      ) * 100,
     ));
     sceneryRangeSlider.value = String(Math.round(
-      config.streaming.sceneryDistanceMeters / config.surface.diameterMeters * 100,
+      config.streaming.sceneryDistanceMeters / Math.max(
+        config.surface.diameterMeters,
+        config.surface.axialLengthMeters,
+      ) * 100,
     ));
     updateTerrainRange();
     updateSceneryRange();

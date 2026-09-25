@@ -142,7 +142,7 @@ export function createExteriorStructures(THREE, world) {
   const outerRimDummy = new THREE.Object3D();
   for (let index = 0; index < 2; index++) {
     const sign = index === 0 ? -1 : 1;
-    outerRimDummy.position.set(0, 0, sign * (halfLength + 7));
+    outerRimDummy.position.set(0, 0, sign * (halfLength + 48));
     outerRimDummy.updateMatrix();
     outerRim.setMatrixAt(index, outerRimDummy.matrix);
   }
@@ -150,10 +150,10 @@ export function createExteriorStructures(THREE, world) {
   endcaps.add(outerRim);
 
   const capLayerSpecs = [
-    { inner: hullRadius * 0.72, outer: hullRadius - 58, mat: plateMaterial, offset: 1.5 },
-    { inner: hullRadius * 0.36, outer: hullRadius * 0.68, mat: darkFrameMaterial, offset: 2.8 },
-    { inner: 128, outer: hullRadius * 0.31, mat: plateMaterial, offset: 3.8 },
-    { inner: 82, outer: 116, mat: supportMaterial, offset: 5 },
+    { inner: hullRadius * 0.72, outer: hullRadius - 58, mat: plateMaterial, offset: 20 },
+    { inner: hullRadius * 0.36, outer: hullRadius * 0.68, mat: darkFrameMaterial, offset: 24 },
+    { inner: 136, outer: hullRadius * 0.31, mat: plateMaterial, offset: 28 },
+    { inner: 106, outer: 128, mat: supportMaterial, offset: 32 },
   ];
   for (const [layerIndex, layer] of capLayerSpecs.entries()) {
     const diskGeometry = ownGeometry(new THREE.RingGeometry(layer.inner, layer.outer, angularSegments));
@@ -188,7 +188,7 @@ export function createExteriorStructures(THREE, world) {
       bandDummy.position.set(
         Math.cos(angle) * (spokeStart + spokeLength / 2),
         Math.sin(angle) * (spokeStart + spokeLength / 2),
-        sign * (halfLength + 5),
+        sign * (halfLength + 56),
       );
       bandDummy.rotation.set(0, 0, angle);
       bandDummy.scale.set(1, 1, 1);
@@ -204,7 +204,7 @@ export function createExteriorStructures(THREE, world) {
   capBraces.name = 'mid-radius end-cap truss braces';
   for (let index = 0; index < 2; index++) {
     const sign = index === 0 ? -1 : 1;
-    bandDummy.position.set(0, 0, sign * (halfLength + 9));
+    bandDummy.position.set(0, 0, sign * (halfLength + 36));
     bandDummy.updateMatrix();
     capBraces.setMatrixAt(index, bandDummy.matrix);
   }
