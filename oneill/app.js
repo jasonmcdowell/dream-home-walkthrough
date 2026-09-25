@@ -156,6 +156,23 @@ const tramLightMaterial = new THREE.MeshStandardMaterial({
   emissive: 0xb36a20,
   emissiveIntensity: 1.2,
 });
+const axisFrameMaterial = new THREE.MeshStandardMaterial({
+  color: 0x73817f,
+  metalness: 0.76,
+  roughness: 0.42,
+});
+const axisDiffuserMaterial = new THREE.MeshStandardMaterial({
+  color: 0xf3f5f2,
+  emissive: 0xe9f2ef,
+  emissiveIntensity: 2.2,
+  roughness: 0.9,
+  side: THREE.DoubleSide,
+});
+const axisBeaconMaterial = new THREE.MeshStandardMaterial({
+  color: 0xf3f0df,
+  emissive: 0xe9ebdf,
+  emissiveIntensity: 1.15,
+});
 const trunkGeometry = new THREE.CylinderGeometry(0.17, 0.27, 3.8, 5);
 const pineCrownGeometry = new THREE.ConeGeometry(2.25, 5.4, 6);
 const roundCrownGeometry = new THREE.DodecahedronGeometry(2.25, 0);
@@ -174,6 +191,9 @@ const persistentWorldMaterials = new Set([
   tramBodyMaterial,
   tramGlassMaterial,
   tramLightMaterial,
+  axisFrameMaterial,
+  axisDiffuserMaterial,
+  axisBeaconMaterial,
   ...Object.values(buildingMaterials),
 ]);
 let world;
@@ -266,6 +286,11 @@ const WALK_SPEED_MPS = 4.6;
 const AIRLOCK_CLEAR_RADIUS = 20;
 const AIRLOCK_TUNNEL_HALF_LENGTH = 46;
 const AIRLOCK_STATION_OFFSET = 20;
+const AXIS_TUBE_RADIUS_M = 42;
+const AXIS_ACCESS_SPACING_M = 1000;
+const AXIS_ACCESS_BAY_HALF_LENGTH_M = 38;
+const AXIS_PANEL_STEP_M = 64;
+const AXIS_PANEL_LENGTH_M = 50;
 const EXTERIOR_MAX_DISTANCE = 1000;
 const TRAM_SPEED_MPS = 220;
 const DEFAULT_FLIGHT_SPEED_MPS = 100;
@@ -453,6 +478,185 @@ function updateLandmarkVisibility() {
     const distanceZ = landmark.z - player.z;
     mesh.visible = !playerOutside && distanceS * distanceS + distanceZ * distanceZ <= reach * reach;
   }
+}
+
+function addCentralAxisTube() {
+  const halfLength = world.axialHalfLength;
+  const tubeStart = -halfLength + 56;
+  const tubeEnd = halfLength - 56;
+  const stations = [0];
+  for (let z = AXIS_ACCESS_SPACING_M; z < halfLength - AXIS_ACCESS_SPACING_M * 0.45; z += AXIS_ACCESS_SPACING_M) {
+    stations.push(-z, z);
+  }
+  stations.sort((a, b) => a - b);
+
+  // Leave a full cross-section open around each access station. The first and
+  // last openings line up with the tram's midpoint and the open end-cap throats.
+  const openings = stations
+    .map(center => ({
+      start: Math.max(tubeStart, center - AXIS_ACCESS_BAY_HALF_LENGTH_M),
+      end: Math.min(tubeEnd, center + AXIS_ACCESS_BAY_HALF_LENGTH_M),
+    }))
+    .filter(opening => opening.end > opening.start)
+    .sort((a, b) => a.start - b.start);
+  const tubeSections = [];
+  let cursor = tubeStart;
+  for (const opening of openings) {
+    if (opening.start > cursor + 1) tubeSections.push({ start: cursor, end: opening.start });
+    cursor = Math.max(cursor, opening.end);
+  }
+  if (cursor < tubeEnd - 1) tubeSections.push({ start: cursor, end: tubeEnd });
+
+  const panelCenters = [];
+  const supportRibZ = [];
+  for (const section of tubeSections) {
+    for (let z = section.start + AXIS_PANEL_LENGTH_M / 2;
+      z + AXIS_PANEL_LENGTH_M / 2 <= section.end + 0.01;
+      z += AXIS_PANEL_STEP_M) {
+      panelCenters.push(z);
+      supportRibZ.push(z + AXIS_PANEL_STEP_M / 2);
+    }
+    supportRibZ.push(section.start, section.end);
+  }
+
+  const panelCount = 16;
+  const panelAngle = Math.PI * 2 / panelCount;
+  if (panelCenters.length) {
+    const matrix = new THREE.Matrix4();
+    for (let index = 0; index < panelCount; index++) {
+      const panelGeometry = new THREE.CylinderGeometry(
+        AXIS_TUBE_RADIUS_M,
+        AXIS_TUBE_RADIUS_M,
+        AXIS_PANEL_LENGTH_M,
+        3,
+        1,
+        true,
+        0,
+        panelAngle * 0.955,
+      );
+      panelGeometry.rotateX(Math.PI / 2);
+      const panels = new THREE.InstancedMesh(panelGeometry, axisDiffuserMaterial, panelCenters.length);
+      for (let instance = 0; instance < panelCenters.length; instance++) {
+        matrix.makeTranslation(0, 0, panelCenters[instance]);
+        panels.setMatrixAt(instance, matrix);
+      }
+      panels.rotation.z = index * panelAngle;
+      panels.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      panels.instanceMatrix.needsUpdate = true;
+      panels.computeBoundingSphere();
+      panels.name = `white diffuse axial light panels ${index + 1}`;
+      worldStructureRoot.add(panels);
+    }
+  }
+
+  const supportZ = [...new Set(supportRibZ.map(z => Math.round(z * 100) / 100))];
+  if (supportZ.length) {
+    const supportRingGeometry = new THREE.TorusGeometry(AXIS_TUBE_RADIUS_M + 1.8, 1.55, 8, 48);
+    const supportRings = new THREE.InstancedMesh(supportRingGeometry, axisFrameMaterial, supportZ.length);
+    const matrix = new THREE.Matrix4();
+    supportZ.forEach((z, index) => {
+      matrix.makeTranslation(0, 0, z);
+      supportRings.setMatrixAt(index, matrix);
+    });
+    supportRings.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    supportRings.instanceMatrix.needsUpdate = true;
+    supportRings.computeBoundingSphere();
+    supportRings.name = 'axial light-tube structural hoops';
+    worldStructureRoot.add(supportRings);
+  }
+
+  const sparGeometry = new THREE.CylinderGeometry(0.9, 0.9, tubeEnd - tubeStart, 8);
+  sparGeometry.rotateX(Math.PI / 2);
+  for (let index = 0; index < 16; index++) {
+    const angle = index * Math.PI / 8;
+    const spar = new THREE.Mesh(sparGeometry, axisFrameMaterial);
+    spar.position.set(
+      Math.cos(angle) * (AXIS_TUBE_RADIUS_M + 1.8),
+      Math.sin(angle) * (AXIS_TUBE_RADIUS_M + 1.8),
+      0,
+    );
+    spar.name = `axial light-tube stringer ${index + 1}`;
+    worldStructureRoot.add(spar);
+  }
+
+  if (stations.length) {
+    const accessRingGeometry = new THREE.TorusGeometry(AXIS_TUBE_RADIUS_M + 2.2, 2.6, 8, 48);
+    const accessRings = new THREE.InstancedMesh(accessRingGeometry, axisFrameMaterial, stations.length * 2);
+    const matrix = new THREE.Matrix4();
+    stations.forEach((station, index) => {
+      for (const [edge, offset] of [-1, 1].entries()) {
+        const z = station + offset * AXIS_ACCESS_BAY_HALF_LENGTH_M;
+        matrix.makeTranslation(0, 0, z);
+        accessRings.setMatrixAt(index * 2 + edge, matrix);
+      }
+    });
+    accessRings.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    accessRings.instanceMatrix.needsUpdate = true;
+    accessRings.computeBoundingSphere();
+    accessRings.name = 'open one-kilometer axial access bays';
+    worldStructureRoot.add(accessRings);
+
+    const beacons = new THREE.InstancedMesh(unitBoxGeometry, axisBeaconMaterial, stations.length * 4);
+    const beaconMatrix = new THREE.Matrix4();
+    const beaconPosition = new THREE.Vector3();
+    const beaconRotation = new THREE.Quaternion();
+    const beaconScale = new THREE.Vector3(0.8, 5.5, 1.6);
+    stations.forEach((station, stationIndex) => {
+      for (let quadrant = 0; quadrant < 4; quadrant++) {
+        const angle = quadrant * Math.PI / 2;
+        beaconPosition.set(
+          Math.cos(angle) * (AXIS_TUBE_RADIUS_M + 6),
+          Math.sin(angle) * (AXIS_TUBE_RADIUS_M + 6),
+          station,
+        );
+        beaconRotation.setFromAxisAngle(new THREE.Vector3(0, 0, 1), angle);
+        beaconMatrix.compose(beaconPosition, beaconRotation, beaconScale);
+        beacons.setMatrixAt(stationIndex * 4 + quadrant, beaconMatrix);
+      }
+    });
+    beacons.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    beacons.instanceMatrix.needsUpdate = true;
+    beacons.computeBoundingSphere();
+    beacons.name = 'white access-bay beacons';
+    worldStructureRoot.add(beacons);
+  }
+
+  // A tapered, open throat meets each airlock tunnel. It has no end plate, so
+  // the tram rail, pedestrian passage, and route to exterior space stay clear.
+  for (const sign of [-1, 1]) {
+    const transition = new THREE.Mesh(
+      new THREE.CylinderGeometry(25, AXIS_TUBE_RADIUS_M, 56, 32, 1, true),
+      axisFrameMaterial,
+    );
+    transition.rotation.x = sign * Math.PI / 2;
+    transition.position.z = sign * (halfLength - 28);
+    transition.name = 'open axial light-tube airlock transition';
+    worldStructureRoot.add(transition);
+  }
+
+  // A compact set of shadowless radial fills gives the white diffusers a
+  // broad sunlight effect without the cost of hundreds of point lights.
+  const lightRig = new THREE.Group();
+  lightRig.name = 'radial habitat sunlight fill';
+  for (let index = 0; index < 8; index++) {
+    const angle = index * Math.PI / 4;
+    const light = new THREE.DirectionalLight(0xf6fbff, 0.42);
+    light.position.set(
+      Math.cos(angle) * (AXIS_TUBE_RADIUS_M - 1),
+      Math.sin(angle) * (AXIS_TUBE_RADIUS_M - 1),
+      0,
+    );
+    light.target.position.set(
+      Math.cos(angle) * world.radius,
+      Math.sin(angle) * world.radius,
+      0,
+    );
+    light.castShadow = false;
+    light.name = `diffuse plant-light fill ${index + 1}`;
+    light.target.name = `plant-light aim ${index + 1}`;
+    lightRig.add(light, light.target);
+  }
+  worldStructureRoot.add(lightRig);
 }
 
 function addTramSystem() {
@@ -1818,6 +2022,7 @@ async function regenerateWorld() {
     document.querySelector('#seed').textContent = `Seed ${world.seed}`;
     document.querySelector('#diameter').textContent = `${Math.round(world.radius * 2).toLocaleString()} m habitat diameter`;
     addCylinderEndcaps();
+    addCentralAxisTube();
     addLandmarks();
     addTramSystem();
     makeBackdrop();
@@ -2855,6 +3060,7 @@ async function start() {
     updateRunButton();
     updateMovementHint();
     addCylinderEndcaps();
+    addCentralAxisTube();
     addLandmarks();
     addTramSystem();
     makeBackdrop();
