@@ -356,6 +356,7 @@ let controllerRampSpeedMps = WALK_SPEED_MPS;
 let controllerSpeedRampActive = false;
 let controllerSpeedMode = 'walk';
 let controlsPanelOpen = false;
+let infoPanelOpen = false;
 
 function getSeed(config) {
   const requested = new URLSearchParams(location.search).get('seed');
@@ -1972,6 +1973,9 @@ const controlsPanel = document.querySelector('#controls-panel');
 const controlsBackdrop = document.querySelector('#controls-backdrop');
 const controlsToggle = document.querySelector('#controls-toggle');
 const controlsClose = document.querySelector('#controls-close');
+const infoPanel = document.querySelector('#info-panel');
+const infoToggle = document.querySelector('#info-toggle');
+const infoClose = document.querySelector('#info-close');
 const runningSpeedSlider = document.querySelector('#running-speed');
 const runningSpeedValue = document.querySelector('#running-speed-value');
 const flyingSpeedSlider = document.querySelector('#flying-speed');
@@ -2590,6 +2594,7 @@ function scheduleViewRangeRefresh(immediate = false) {
 
 function setControlsPanelOpen(open) {
   controlsPanelOpen = Boolean(open);
+  if (controlsPanelOpen && infoPanelOpen) setInfoPanelOpen(false);
   controlsPanel.hidden = !controlsPanelOpen;
   controlsBackdrop.hidden = !controlsPanelOpen;
   controlsToggle.setAttribute('aria-expanded', String(controlsPanelOpen));
@@ -2606,9 +2611,29 @@ function toggleControlsPanel() {
   setControlsPanelOpen(!controlsPanelOpen);
 }
 
+function setInfoPanelOpen(open) {
+  infoPanelOpen = Boolean(open);
+  if (infoPanelOpen && controlsPanelOpen) setControlsPanelOpen(false);
+  infoPanel.hidden = !infoPanelOpen;
+  infoToggle.setAttribute('aria-expanded', String(infoPanelOpen));
+  if (infoPanelOpen) {
+    clearTransientInput();
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    infoClose.focus();
+  } else {
+    infoToggle.focus();
+  }
+}
+
+function toggleInfoPanel() {
+  setInfoPanelOpen(!infoPanelOpen);
+}
+
 controlsToggle.addEventListener('click', toggleControlsPanel);
 controlsClose.addEventListener('click', () => setControlsPanelOpen(false));
 controlsBackdrop.addEventListener('click', () => setControlsPanelOpen(false));
+infoToggle.addEventListener('click', toggleInfoPanel);
+infoClose.addEventListener('click', () => setInfoPanelOpen(false));
 document.querySelector('#tram-interact').addEventListener('click', () => { interactQueued = true; });
 runningSpeedSlider.addEventListener('input', updateRunningSpeed);
 flyingSpeedSlider.addEventListener('input', updateFlyingSpeed);
@@ -2708,7 +2733,7 @@ function step(dt) {
   const gamepad = pollGamepad();
   if (gamepad.hudPressed) toggleControlsPanel();
   if (gamepad.flightModePressed) toggleFlightMode();
-  if (controlsPanelOpen) {
+  if (controlsPanelOpen || infoPanelOpen) {
     updateRunButton();
     return;
   }
@@ -3028,8 +3053,8 @@ function updateAltimeter() {
   }
   altitudeMeters = Math.max(0, altitudeMeters);
   altimeterLabel.textContent = playerOutside
-    ? 'HULL CLEARANCE'
-    : 'ALTITUDE · AGL';
+    ? 'HULL RANGE'
+    : 'ALT · AGL';
   altimeterValue.textContent = `${altitudeMeters.toLocaleString(undefined, {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
@@ -3053,13 +3078,11 @@ function updateHud(now) {
   movementSpeedMode.textContent = tramRiding
     ? 'TRAM'
     : playerOutside
-      ? player.flightMode === 'camera' ? 'ZERO-G · CAMERA' : 'ZERO-G · MINECRAFT'
+      ? player.flightMode === 'camera' ? 'ZERO-G · CAMERA' : 'ZERO-G'
       : player.flying
-        ? player.flightMode === 'camera'
-          ? 'CAMERA-DIRECTED FLIGHT'
-          : 'MINECRAFT FLIGHT'
+        ? player.flightMode === 'camera' ? 'CAMERA FLIGHT' : 'FLIGHT'
         : shownSpeed > WALK_SPEED_MPS + 0.05
-          ? 'RUN / BOOST'
+          ? 'RUNNING'
           : 'WALKING';
   movementSpeedValue.textContent = `${shownSpeed.toLocaleString(undefined, {
     minimumFractionDigits: speedPrecision,
@@ -3076,6 +3099,8 @@ function updateHud(now) {
       : tramRiding
         ? 'Field value · tram holds you at the axis'
         : 'Field acceleration toward the nearest ground';
+  document.querySelector('#gravity-hud').title = gravityNote.textContent;
+  document.querySelector('#altimeter-hud').title = altimeterReference.textContent;
   updateStreamingHud();
   if (playerOutside) {
     regionLabel.textContent = 'Region · Exterior';
@@ -3175,6 +3200,7 @@ function updateLookPitch(delta) {
 document.addEventListener('keydown', event => {
   if (event.code === 'Escape') {
     if (controlsPanelOpen) setControlsPanelOpen(false);
+    else if (infoPanelOpen) setInfoPanelOpen(false);
     else if (document.pointerLockElement === canvas) document.exitPointerLock();
     return;
   }
@@ -3190,12 +3216,16 @@ document.addEventListener('keydown', event => {
     toggleControlsPanel();
     return;
   }
+  if (event.code === 'KeyI' && !event.repeat) {
+    toggleInfoPanel();
+    return;
+  }
   if (event.code === 'KeyV' && !event.repeat) {
     event.preventDefault();
     toggleFlightMode();
     return;
   }
-  if (controlsPanelOpen) return;
+  if (controlsPanelOpen || infoPanelOpen) return;
   if (!ready) return;
   if (event.code === 'KeyE' && !event.repeat) {
     event.preventDefault();

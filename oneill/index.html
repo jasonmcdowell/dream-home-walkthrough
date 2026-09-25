@@ -11,47 +11,43 @@
 </head>
 <body>
   <canvas id="world" aria-label="First-person procedural O'Neill cylinder environment"></canvas>
-  <header id="world-hud" aria-live="polite">
-    <p class="eyebrow">PLACED AND SPACES · ENVIRONMENT STUDY</p>
-    <h1>O'Neill Cylinder</h1>
+  <header id="world-hud" aria-label="Live habitat instruments">
+    <div id="movement-speed-hud" aria-label="Current movement speed">
+      <span id="movement-speed-mode">WALKING</span>
+      <output id="movement-speed-value">4.6 m/s</output>
+    </div>
+    <div id="gravity-hud" aria-label="Current local downward acceleration" aria-describedby="gravity-note">
+      <span id="gravity-label" aria-hidden="true">g ↓</span>
+      <output id="gravity-value">9.8 m/s²</output>
+      <span class="instrument-sr-only" id="gravity-note">Acceleration toward the nearest ground</span>
+    </div>
+    <div id="altimeter-hud" aria-label="Digital altimeter" aria-describedby="altimeter-reference">
+      <span id="altimeter-label">ALT · AGL</span>
+      <div id="altimeter-readout">
+        <output id="altimeter-value">0.0 m</output>
+        <span id="altimeter-feet">0 ft</span>
+      </div>
+      <span class="instrument-sr-only" id="altimeter-reference">Above the nearest ground</span>
+    </div>
+  </header>
+  <button id="info-toggle" type="button" aria-controls="info-panel" aria-expanded="false" aria-label="World information" title="World information">i</button>
+  <aside id="info-panel" hidden role="dialog" aria-modal="false" aria-labelledby="info-title">
+    <div class="info-heading">
+      <div>
+        <p class="eyebrow">PLACED AND SPACES · ENVIRONMENT STUDY</p>
+        <h2 id="info-title">O'Neill Cylinder</h2>
+      </div>
+      <button id="info-close" type="button" aria-label="Close world information">×</button>
+    </div>
     <div class="world-stats">
       <span id="seed">Seed 1847</span>
       <span id="diameter">2,000 m habitat diameter</span>
       <span id="chunks">Preparing landscape…</span>
       <span id="location">Surface 0 · 0</span>
-      <span id="region">Region · Grassland</span>
+      <span id="region">Biome · Grassland</span>
     </div>
     <a id="environment-mode-link" href="?house=torus">Open with Torus Home</a>
-    <div id="movement-speed-hud" aria-label="Current movement speed">
-      <span id="movement-speed-mode">WALKING</span>
-      <output id="movement-speed-value">4.6 m/s</output>
-    </div>
-    <div id="gravity-hud" aria-label="Current local downward acceleration">
-      <div>
-        <span id="gravity-label">LOCAL DOWNWARD g</span>
-        <span id="gravity-note">Acceleration toward the nearest ground</span>
-      </div>
-      <output id="gravity-value">9.8 m/s²</output>
-    </div>
-    <div id="altimeter-hud" aria-label="Digital altimeter">
-      <div id="altimeter-labels">
-        <span id="altimeter-label">ALTITUDE · AGL</span>
-        <span id="altimeter-reference">Above nearest ground</span>
-      </div>
-      <div id="altimeter-readout">
-        <output id="altimeter-value">0.0 m</output>
-        <span id="altimeter-feet">0 ft</span>
-      </div>
-    </div>
-    <div id="day-night-hud" aria-label="Habitat light cycle">
-      <div id="day-night-labels">
-        <span id="day-night-state">DAYLIGHT · CYCLE</span>
-        <span id="day-night-detail">Day 01 / 30 · New moon</span>
-        <span id="seasonal-readout">Spring · 12.0 h daylight · 84% peak</span>
-      </div>
-      <output id="tube-light-readout">100.0%</output>
-    </div>
-  </header>
+  </aside>
   <aside id="heading-compass" aria-label="Cylinder heading">
     <p class="compass-title">CYLINDER HEADING</p>
     <div id="compass-rose" aria-hidden="true">
@@ -65,8 +61,16 @@
     <output id="heading-reading">+Z endcap · 000°</output>
     <span id="heading-detail">+s is spinward</span>
   </aside>
+  <div id="day-night-hud" aria-label="Habitat light cycle">
+    <div id="day-night-labels">
+      <span id="day-night-state">DAYLIGHT · CYCLE</span>
+      <span id="day-night-detail">Day 01 / 30 · New moon</span>
+      <span id="seasonal-readout">Spring · 12.0 h daylight · 84% peak</span>
+    </div>
+    <output id="tube-light-readout">100.0%</output>
+  </div>
   <button id="controls-toggle" type="button" aria-controls="controls-panel" aria-expanded="false">CONTROLS</button>
-  <div id="hint">WASD / arrows or left stick move · Mouse / drag or right stick look · Shift / L3 run · Space / A jump; double-tap to fly · V / X / Square flight style · H / R1 / Options controls</div>
+  <div id="hint">WASD / arrows / left stick move · Drag / right stick look · Shift / L3 run · Space / A jump; double-tap to fly · V / X / Square flight style · I info · H / R1 / Options controls</div>
   <div id="controller-status" hidden aria-live="polite"></div>
   <div id="tram-prompt" hidden aria-live="polite">
     <span id="tram-message"></span>
@@ -252,6 +256,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=la-seasonal-lighting-20260925"></script>
+  <script type="module" src="app.js?v=peripheral-hud-20260925"></script>
 </body>
 </html>
