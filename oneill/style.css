@@ -468,7 +468,7 @@ h1, h2, p { margin-top: 0; }
   font-weight: 700;
 }
 
-#running-speed-value, #flying-speed-value, #terrain-range-value, #scenery-range-value { color: #587755; font-variant-numeric: tabular-nums; }
+#running-speed-value, #flying-speed-value, #center-tube-light-value, #terrain-range-value, #scenery-range-value { color: #587755; font-variant-numeric: tabular-nums; }
 
 #flight-mode {
   min-width: 140px;
@@ -480,7 +480,7 @@ h1, h2, p { margin-top: 0; }
   font: inherit;
 }
 
-#running-speed, #flying-speed, #terrain-range, #scenery-range {
+#running-speed, #flying-speed, #center-tube-light-level, #terrain-range, #scenery-range {
   display: block;
   width: 100%;
   margin: 15px 0 6px;
@@ -489,6 +489,19 @@ h1, h2, p { margin-top: 0; }
 }
 
 .view-range-label { margin-top: 20px; }
+
+.legacy-fill-toggle {
+  align-items: center;
+}
+
+.legacy-fill-toggle input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0 2px 0 auto;
+  accent-color: #597a59;
+  cursor: pointer;
+}
 
 .view-range-note {
   margin: 8px 0 0;

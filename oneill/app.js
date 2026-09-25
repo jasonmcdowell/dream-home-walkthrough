@@ -49,8 +49,10 @@ const camera = new THREE.PerspectiveCamera(
   5000,
 );
 const hemisphere = new THREE.HemisphereLight(0xe5f1ec, 0x6e765b, isTouch ? 2.05 : 1.85);
+hemisphere.visible = false;
 scene.add(hemisphere);
 const sunlight = new THREE.DirectionalLight(0xffedcf, 2.2);
+sunlight.visible = false;
 sunlight.position.set(-12, 26, -20);
 sunlight.target.position.set(0, 0, 0);
 scene.add(sunlight, sunlight.target);
@@ -111,14 +113,15 @@ const fieldFurrowMaterials = [
   new THREE.MeshStandardMaterial({ color: 0x677a3e, roughness: 1 }),
   new THREE.MeshStandardMaterial({ color: 0x978352, roughness: 1 }),
 ];
-const backdropMaterial = new THREE.MeshBasicMaterial({
+const backdropMaterial = new THREE.MeshLambertMaterial({
   vertexColors: true,
   side: THREE.DoubleSide,
   fog: true,
   depthWrite: false,
-  toneMapped: false,
 });
-const interiorBackground = new THREE.Color(0xaec7c8);
+const dayInteriorBackground = new THREE.Color(0xaec7c8);
+const interiorBackground = dayInteriorBackground.clone();
+const nightInteriorBackground = new THREE.Color(0x070c12);
 const exteriorBackground = new THREE.Color(0x03080d);
 const airlockFrameMaterial = new THREE.MeshStandardMaterial({
   color: 0x65716f,
@@ -173,6 +176,26 @@ const axisBeaconMaterial = new THREE.MeshStandardMaterial({
   emissive: 0xe9ebdf,
   emissiveIntensity: 1.15,
 });
+const buildingWindowMaterials = [
+  new THREE.MeshStandardMaterial({
+    color: 0x45372b,
+    emissive: 0xffc879,
+    emissiveIntensity: 0.035,
+    roughness: 0.52,
+  }),
+  new THREE.MeshStandardMaterial({
+    color: 0x45372b,
+    emissive: 0xffe0a6,
+    emissiveIntensity: 0.035,
+    roughness: 0.52,
+  }),
+  new THREE.MeshStandardMaterial({
+    color: 0x45372b,
+    emissive: 0xffa95e,
+    emissiveIntensity: 0.035,
+    roughness: 0.52,
+  }),
+];
 const trunkGeometry = new THREE.CylinderGeometry(0.17, 0.27, 3.8, 5);
 const pineCrownGeometry = new THREE.ConeGeometry(2.25, 5.4, 6);
 const roundCrownGeometry = new THREE.DodecahedronGeometry(2.25, 0);
@@ -194,6 +217,7 @@ const persistentWorldMaterials = new Set([
   axisFrameMaterial,
   axisDiffuserMaterial,
   axisBeaconMaterial,
+  ...buildingWindowMaterials,
   ...Object.values(buildingMaterials),
 ]);
 let world;
@@ -209,6 +233,9 @@ let currentTileKey = '';
 let pendingChunkKeys = [];
 let pendingSceneryKeys = [];
 let landmarkMeshes = [];
+let landmarkWindowGroups = [];
+let centralTubeLights = [];
+let centerTubeLightLevel = 1;
 let backdrop;
 let exteriorStars;
 let tramRoot;
@@ -296,6 +323,7 @@ const TRAM_SPEED_MPS = 220;
 const DEFAULT_FLIGHT_SPEED_MPS = 100;
 const AXIS_GRAVITY_MPS2 = 3;
 const GROUND_GRAVITY_MPS2 = 9.8;
+const CENTER_TUBE_FILL_INTENSITY = 0.42;
 const JUMP_TAKEOFF_VELOCITY_MPS = 3.0; // About 0.46 m of rise at ground-level gravity.
 const ALTIMETER_UPDATE_MS = 80;
 const GAMEPAD_ACCELERATION_FRACTION = 0.14;
@@ -445,6 +473,7 @@ function addCylinderEndcaps() {
 
 function addLandmarks() {
   landmarkMeshes = [];
+  landmarkWindowGroups = [];
   for (const landmark of world.landmarks || []) {
     const geometry = buildingGeometries[landmark.kind];
     const material = buildingMaterials[landmark.kind];
@@ -461,6 +490,13 @@ function addLandmarks() {
     mesh.visible = false;
     worldStructureRoot.add(mesh);
     landmarkMeshes.push(mesh);
+
+    const windowGroup = createBuildingWindowGroup([landmark]);
+    if (windowGroup) {
+      windowGroup.visible = false;
+      worldStructureRoot.add(windowGroup);
+      landmarkWindowGroups.push({ landmark, group: windowGroup });
+    }
   }
 }
 
@@ -476,11 +512,15 @@ function updateLandmarkVisibility() {
     const reach = range + Math.hypot(landmark.width, landmark.depth) / 2;
     const distanceS = Math.abs(world.shortestDeltaS(landmark.s, centerS));
     const distanceZ = landmark.z - player.z;
-    mesh.visible = !playerOutside && distanceS * distanceS + distanceZ * distanceZ <= reach * reach;
+    const visible = !playerOutside && distanceS * distanceS + distanceZ * distanceZ <= reach * reach;
+    mesh.visible = visible;
+    const windows = landmarkWindowGroups.find(item => item.landmark === landmark)?.group;
+    if (windows) windows.visible = visible;
   }
 }
 
 function addCentralAxisTube() {
+  centralTubeLights = [];
   const halfLength = world.axialHalfLength;
   const tubeStart = -halfLength + 56;
   const tubeEnd = halfLength - 56;
@@ -640,7 +680,8 @@ function addCentralAxisTube() {
   lightRig.name = 'radial habitat sunlight fill';
   for (let index = 0; index < 8; index++) {
     const angle = index * Math.PI / 4;
-    const light = new THREE.DirectionalLight(0xf6fbff, 0.42);
+    const light = new THREE.DirectionalLight(0xf6fbff, CENTER_TUBE_FILL_INTENSITY);
+    light.intensity *= centerTubeLightLevel;
     light.position.set(
       Math.cos(angle) * (AXIS_TUBE_RADIUS_M - 1),
       Math.sin(angle) * (AXIS_TUBE_RADIUS_M - 1),
@@ -655,6 +696,7 @@ function addCentralAxisTube() {
     light.name = `diffuse plant-light fill ${index + 1}`;
     light.target.name = `plant-light aim ${index + 1}`;
     lightRig.add(light, light.target);
+    centralTubeLights.push(light);
   }
   worldStructureRoot.add(lightRig);
 }
@@ -764,6 +806,163 @@ function addTrees(group, placements) {
   });
 }
 
+function createBuildingWindowGroup(placements) {
+  const transformsByTone = buildingWindowMaterials.map(() => []);
+  const localUp = new THREE.Vector3(0, 1, 0);
+  const localOffset = new THREE.Vector3();
+  const worldPosition = new THREE.Vector3();
+  const windowScale = new THREE.Vector3();
+  const windowMatrix = new THREE.Matrix4();
+  const faceRotation = new THREE.Quaternion();
+  const windowQuaternion = new THREE.Quaternion();
+  const windowDepth = 0.12;
+
+  for (const building of placements) {
+    const width = Number(building.width);
+    const depth = Number(building.depth);
+    const height = Number(building.height);
+    if (!(width > 0 && depth > 0 && height > 0)) continue;
+
+    const pose = world.surfacePose(building.s, building.z);
+    const buildingQuaternion = makeSurfaceQuaternion(pose, building.yaw || 0);
+    const buildingCenter = pose.position.clone().addScaledVector(pose.up, height / 2);
+    let randomState = seedFromString(
+      `${world.seed}:${building.kind}:${Math.round(building.s * 10)}:${Math.round(building.z * 10)}`,
+    ) || 1;
+    const random = () => {
+      randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
+      return randomState / 0x100000000;
+    };
+
+    const addPane = (x, heightFraction, z, yaw, paneWidth, paneHeight, litChance = 0.72) => {
+      if (random() > litChance) return;
+      const tone = Math.floor(random() * transformsByTone.length);
+      localOffset.set(x, (heightFraction - 0.5) * height, z).applyQuaternion(buildingQuaternion);
+      worldPosition.copy(buildingCenter).add(localOffset);
+      faceRotation.setFromAxisAngle(localUp, yaw);
+      windowQuaternion.copy(buildingQuaternion).multiply(faceRotation);
+      windowScale.set(paneWidth, paneHeight, windowDepth);
+      windowMatrix.compose(worldPosition, windowQuaternion, windowScale);
+      transformsByTone[tone].push(windowMatrix.clone());
+    };
+
+    const addFacade = (face, rows, columns, span, paneWidth, paneHeight, position) => {
+      for (const row of rows) {
+        for (let column = 0; column < columns; column++) {
+          const across = columns === 1 ? 0 : -span + (span * 2 * column) / (columns - 1);
+          if (face === 'front') addPane(across, row, position.front, 0, paneWidth, paneHeight);
+          else if (face === 'rear') addPane(across, row, position.rear, Math.PI, paneWidth, paneHeight);
+          else if (face === 'right') addPane(position.right, row, across, Math.PI / 2, paneWidth, paneHeight);
+          else addPane(position.left, row, across, -Math.PI / 2, paneWidth, paneHeight);
+        }
+      }
+    };
+
+    const kind = building.kind || '';
+    if (kind === 'houseOneStory' || kind === 'houseOneStoryOpenDoor'
+      || kind === 'houseTwoStory' || kind === 'houseTwoStoryOpenDoor' || kind === 'village') {
+      const twoStory = kind.includes('TwoStory') || kind === 'village';
+      const floors = twoStory ? [0.28, 0.72] : [0.5];
+      const paneWidth = THREE.MathUtils.clamp(width * 0.1, 0.65, 1.25);
+      const paneHeight = THREE.MathUtils.clamp(height * (twoStory ? 0.12 : 0.19), 0.55, 0.86);
+      const position = {
+        front: depth * 0.2 + 0.06,
+        rear: -depth * 0.5 - 0.06,
+        right: width * 0.5 + 0.06,
+        left: -width * 0.5 - 0.06,
+      };
+      // Front windows stay to either side of the real, walk-through doorway.
+      addFacade('front', floors, 2, width * 0.29, paneWidth, paneHeight, position);
+      addFacade('rear', floors, 2, width * 0.29, paneWidth, paneHeight, position);
+      addFacade('right', floors, 2, depth * 0.2, paneWidth, paneHeight, position);
+      addFacade('left', floors, 2, depth * 0.2, paneWidth, paneHeight, position);
+    } else if (kind === 'skyscraper') {
+      const rows = Math.max(4, Math.min(30, Math.floor(height / 14)));
+      const floors = Array.from({ length: rows }, (_, index) => 0.14 + (index + 0.5) * 0.7 / rows);
+      const position = {
+        front: depth * 0.24 + 0.06,
+        rear: -depth * 0.24 - 0.06,
+        right: width * 0.24 + 0.06,
+        left: -width * 0.24 - 0.06,
+      };
+      const paneWidth = 2.2;
+      const paneHeight = Math.max(1.4, Math.min(2.6, height / rows * 0.3));
+      addFacade('front', floors, 3, width * 0.13, paneWidth, paneHeight, position);
+      addFacade('rear', floors, 3, width * 0.13, paneWidth, paneHeight, position);
+      addFacade('right', floors, 3, depth * 0.13, paneWidth, paneHeight, position);
+      addFacade('left', floors, 3, depth * 0.13, paneWidth, paneHeight, position);
+    } else if (kind === 'smallCity' || kind === 'largeCity') {
+      const rows = Math.max(2, Math.min(10, Math.floor(height / 5)));
+      const floors = Array.from({ length: rows }, (_, index) => 0.2 + (index + 0.5) * 0.62 / rows);
+      const isLarge = kind === 'largeCity';
+      const columnsX = Math.max(2, Math.min(4, Math.floor(width / 7)));
+      const columnsZ = Math.max(2, Math.min(4, Math.floor(depth / 7)));
+      const position = {
+        front: depth * (isLarge ? 0.53 : 0.5) + 0.06,
+        rear: -depth * (isLarge ? 0.7 : 0.5) - 0.06,
+        right: width * (isLarge ? 0.74 : 0.5) + 0.06,
+        left: -width * (isLarge ? 0.74 : 0.5) - 0.06,
+      };
+      const paneWidth = THREE.MathUtils.clamp(width / columnsX * 0.18, 0.75, 2.1);
+      const paneHeight = THREE.MathUtils.clamp(height / rows * 0.22, 1.0, 2.1);
+      addFacade('front', floors, columnsX, width * (isLarge ? 0.61 : 0.43), paneWidth, paneHeight, position);
+      addFacade('rear', floors, columnsX, width * (isLarge ? 0.61 : 0.43), paneWidth, paneHeight, position);
+      addFacade('right', floors, columnsZ, depth * (isLarge ? 0.62 : 0.43), paneWidth, paneHeight, position);
+      addFacade('left', floors, columnsZ, depth * (isLarge ? 0.62 : 0.43), paneWidth, paneHeight, position);
+    } else if (kind === 'farm') {
+      // A few farmhouse and barn lantern windows keep the rural clusters legible.
+      for (const x of [-0.72, -0.56]) {
+        addPane(x * width, 0.46, depth * 0.31 + 0.05, 0, 1.1, 0.75, 0.8);
+      }
+      for (const z of [-0.31, -0.12]) {
+        addPane(-0.08 * width, 0.48, z * depth, Math.PI / 2, 1.1, 0.75, 0.62);
+      }
+    } else if (kind === 'wizardTower') {
+      for (const row of [0.32, 0.52, 0.71]) {
+        for (let side = 0; side < 8; side++) {
+          const yaw = side * Math.PI / 4;
+          addPane(
+            Math.sin(yaw) * (width * 0.3 + 0.05),
+            row,
+            Math.cos(yaw) * (depth * 0.3 + 0.05),
+            yaw,
+            Math.min(width * 0.045, 2.6),
+            Math.max(1.5, Math.min(height * 0.025, 3.5)),
+            0.82,
+          );
+        }
+      }
+    } else if (kind === 'megaPyramid') {
+      for (const row of [0.13, 0.29, 0.45, 0.61, 0.74]) {
+        const halfWidth = width * 0.43 * (1 - row);
+        const halfDepth = depth * 0.43 * (1 - row);
+        const z = depth * 0.48 * (1 - row) + 0.08;
+        const x = width * 0.48 * (1 - row) + 0.08;
+        for (const side of [-1, 1]) {
+          addPane(side * halfWidth, row, z, 0, 3.5, 3.1, 0.78);
+          addPane(side * halfWidth, row, -z, Math.PI, 3.5, 3.1, 0.78);
+          addPane(x, row, side * halfDepth, Math.PI / 2, 3.5, 3.1, 0.78);
+          addPane(-x, row, side * halfDepth, -Math.PI / 2, 3.5, 3.1, 0.78);
+        }
+      }
+    }
+  }
+
+  const windowGroup = new THREE.Group();
+  windowGroup.name = 'seeded warm building windows';
+  for (const [tone, matrices] of transformsByTone.entries()) {
+    if (!matrices.length) continue;
+    const mesh = new THREE.InstancedMesh(unitBoxGeometry, buildingWindowMaterials[tone], matrices.length);
+    matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    mesh.name = `warm window lights ${tone + 1}`;
+    windowGroup.add(mesh);
+  }
+  return windowGroup.children.length ? windowGroup : null;
+}
+
 function addBuildings(group, placements) {
   const byKind = new Map();
   for (const building of placements) {
@@ -778,6 +977,8 @@ function addBuildings(group, placements) {
       return makeTransform(pose, building.yaw, scale, building.height / 2);
     });
   }
+  const windows = createBuildingWindowGroup(placements);
+  if (windows) group.add(windows);
 }
 
 function addWaterBodies(group, column, row) {
@@ -1165,6 +1366,8 @@ function disposeWorldStructures() {
   worldStructureRoot.name = 'seeded cylinder structures';
   scene.add(worldStructureRoot);
   landmarkMeshes = [];
+  landmarkWindowGroups = [];
+  centralTubeLights = [];
   exteriorStars = null;
   tramRoot = null;
 }
@@ -1753,6 +1956,9 @@ const runningSpeedValue = document.querySelector('#running-speed-value');
 const flyingSpeedSlider = document.querySelector('#flying-speed');
 const flyingSpeedValue = document.querySelector('#flying-speed-value');
 const flightModeSelect = document.querySelector('#flight-mode');
+const centerTubeLightSlider = document.querySelector('#center-tube-light-level');
+const centerTubeLightValue = document.querySelector('#center-tube-light-value');
+const legacySceneFillToggle = document.querySelector('#legacy-scene-fill');
 const terrainRangeSlider = document.querySelector('#terrain-range');
 const terrainRangeValue = document.querySelector('#terrain-range-value');
 const sceneryRangeSlider = document.querySelector('#scenery-range');
@@ -1765,6 +1971,28 @@ const VIEW_RANGE_FOG_NEAR_RATIO = 0.57;
 const VIEW_RANGE_FOG_FAR_RATIO = 1.1;
 let viewRangeRefreshTimer = 0;
 let worldRegenerationInProgress = false;
+
+function updateCenterTubeLightLevel() {
+  centerTubeLightLevel = THREE.MathUtils.clamp(Number(centerTubeLightSlider.value) / 100, 0, 1);
+  centerTubeLightValue.textContent = `${Math.round(centerTubeLightLevel * 100)}%`;
+
+  axisDiffuserMaterial.emissiveIntensity = 2.2 * centerTubeLightLevel;
+  axisBeaconMaterial.emissiveIntensity = 1.15 * centerTubeLightLevel;
+  hemisphere.intensity = (isTouch ? 2.05 : 1.85) * centerTubeLightLevel;
+  sunlight.intensity = 2.2 * centerTubeLightLevel;
+  for (const light of centralTubeLights) {
+    light.intensity = CENTER_TUBE_FILL_INTENSITY * centerTubeLightLevel;
+  }
+  const nightLighting = Math.pow(1 - centerTubeLightLevel, 1.08);
+  for (const material of buildingWindowMaterials) {
+    material.emissiveIntensity = 0.035 + nightLighting * 3.1;
+  }
+  interiorBackground.lerpColors(
+    dayInteriorBackground,
+    nightInteriorBackground,
+    Math.pow(1 - centerTubeLightLevel, 0.82),
+  );
+}
 
 function settingAtPath(config, path) {
   return path.split('.').reduce((value, part) => value?.[part], config);
@@ -2231,8 +2459,14 @@ document.querySelector('#tram-interact').addEventListener('click', () => { inter
 runningSpeedSlider.addEventListener('input', updateRunningSpeed);
 flyingSpeedSlider.addEventListener('input', updateFlyingSpeed);
 flightModeSelect.addEventListener('change', () => setFlightMode(flightModeSelect.value));
+centerTubeLightSlider.addEventListener('input', updateCenterTubeLightLevel);
+legacySceneFillToggle.addEventListener('change', () => {
+  hemisphere.visible = legacySceneFillToggle.checked;
+  sunlight.visible = legacySceneFillToggle.checked;
+});
 updateRunningSpeed();
 updateFlyingSpeed();
+updateCenterTubeLightLevel();
 terrainRangeSlider.addEventListener('input', () => {
   updateTerrainRange();
   scheduleViewRangeRefresh();
