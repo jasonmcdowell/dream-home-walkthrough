@@ -19,6 +19,27 @@ const isTouch = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').
 const PLAYER_EYE_HEIGHT_M = 1.7272;
 const PLAYER_BODY_HEIGHT_M = 1.8288;
 const PLAYER_COLLISION_RADIUS_M = 0.32;
+const PACIFIC_CLOCK_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+const DAY_NIGHT_CYCLE_SECONDS = 12 * 60;
+const LUNAR_CYCLE_SECONDS = 6 * 60 * 60;
+const PACIFIC_CALENDAR_DAY_SECONDS = 24 * 60 * 60;
+const SEASONAL_YEAR_DAYS = 3;
+const SEASONAL_YEAR_SECONDS = SEASONAL_YEAR_DAYS * PACIFIC_CALENDAR_DAY_SECONDS;
+const LA_LATITUDE_RADIANS = THREE.MathUtils.degToRad(34.0522);
+const EARTH_AXIAL_TILT_RADIANS = THREE.MathUtils.degToRad(23.43928);
+const TWILIGHT_SECONDS = 60;
+const LUNAR_NIGHT_MIN_MIN = 0.01;
+const LUNAR_NIGHT_MIN_MAX = 0.15;
+let pacificClockAnchor = { epochMs: 0, secondsSinceMidnight: 0, dayOrdinal: 0 };
 const playerEyeHeight = PLAYER_EYE_HEIGHT_M;
 const combinedHomeMode = new URLSearchParams(window.location.search).get('house') === 'torus';
 const environmentModeUrl = new URL(window.location.href);
@@ -1958,6 +1979,12 @@ const flyingSpeedValue = document.querySelector('#flying-speed-value');
 const flightModeSelect = document.querySelector('#flight-mode');
 const centerTubeLightSlider = document.querySelector('#center-tube-light-level');
 const centerTubeLightValue = document.querySelector('#center-tube-light-value');
+const dayNightHud = document.querySelector('#day-night-hud');
+const dayNightState = document.querySelector('#day-night-state');
+const dayNightDetail = document.querySelector('#day-night-detail');
+const seasonalReadout = document.querySelector('#seasonal-readout');
+const tubeLightReadout = document.querySelector('#tube-light-readout');
+const resumeDayNightCycleButton = document.querySelector('#resume-day-night-cycle');
 const legacySceneFillToggle = document.querySelector('#legacy-scene-fill');
 const terrainRangeSlider = document.querySelector('#terrain-range');
 const terrainRangeValue = document.querySelector('#terrain-range-value');
@@ -1971,10 +1998,104 @@ const VIEW_RANGE_FOG_NEAR_RATIO = 0.57;
 const VIEW_RANGE_FOG_FAR_RATIO = 1.1;
 let viewRangeRefreshTimer = 0;
 let worldRegenerationInProgress = false;
+let manualTubeLightOverride = false;
+let lastAppliedCenterTubeLightLevel = Number.NaN;
 
-function updateCenterTubeLightLevel() {
-  centerTubeLightLevel = THREE.MathUtils.clamp(Number(centerTubeLightSlider.value) / 100, 0, 1);
-  centerTubeLightValue.textContent = `${Math.round(centerTubeLightLevel * 100)}%`;
+function getPacificClockSnapshot(nowMs) {
+  if (!pacificClockAnchor.epochMs || nowMs < pacificClockAnchor.epochMs || nowMs - pacificClockAnchor.epochMs >= 500) {
+    const parts = Object.fromEntries(
+      PACIFIC_CLOCK_FORMATTER.formatToParts(new Date(nowMs)).map(part => [part.type, part.value]),
+    );
+    const dayOrdinal = Math.floor(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)) / (PACIFIC_CALENDAR_DAY_SECONDS * 1000));
+    pacificClockAnchor = {
+      epochMs: nowMs,
+      secondsSinceMidnight: Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second) + (nowMs % 1000) / 1000,
+      dayOrdinal,
+    };
+  }
+  return {
+    secondsSinceMidnight: mod(pacificClockAnchor.secondsSinceMidnight + (nowMs - pacificClockAnchor.epochMs) / 1000, PACIFIC_CALENDAR_DAY_SECONDS),
+    dayOrdinal: pacificClockAnchor.dayOrdinal,
+  };
+}
+
+function describeMoonPhase(progress) {
+  const phases = [
+    'New moon', 'Waxing crescent', 'First quarter', 'Waxing gibbous',
+    'Full moon', 'Waning gibbous', 'Last quarter', 'Waning crescent',
+  ];
+  return phases[Math.round(progress * phases.length) % phases.length];
+}
+
+function getDayNightSchedule(nowMs) {
+  const pacificClock = getPacificClockSnapshot(nowMs);
+  const pacificSeconds = pacificClock.secondsSinceMidnight;
+  const lunarElapsedSeconds = mod(pacificSeconds, LUNAR_CYCLE_SECONDS);
+  const lunarProgress = lunarElapsedSeconds / LUNAR_CYCLE_SECONDS;
+  const nightMinimum = LUNAR_NIGHT_MIN_MIN
+    + (LUNAR_NIGHT_MIN_MAX - LUNAR_NIGHT_MIN_MIN) * (1 - Math.cos(Math.PI * 2 * lunarProgress)) / 2;
+
+  // Unix civil-day ordinals keep the year phase stable across visits. Each
+  // three-day Pacific-calendar block starts at the spring equinox; the
+  // solar-geometry conversion makes daylight a curved response to declination.
+  const yearElapsedSeconds = mod(pacificClock.dayOrdinal, SEASONAL_YEAR_DAYS) * PACIFIC_CALENDAR_DAY_SECONDS + pacificSeconds;
+  const yearProgress = yearElapsedSeconds / SEASONAL_YEAR_SECONDS;
+  const solarDeclination = EARTH_AXIAL_TILT_RADIANS * Math.sin(Math.PI * 2 * yearProgress);
+  const cosineHourAngle = THREE.MathUtils.clamp(
+    -Math.tan(LA_LATITUDE_RADIANS) * Math.tan(solarDeclination),
+    -1,
+    1,
+  );
+  const daylightHours = 24 * Math.acos(cosineHourAngle) / Math.PI;
+  const daylightMinutes = DAY_NIGHT_CYCLE_SECONDS / 60 * daylightHours / 24;
+  const seasonalNoonLight = Math.cos(LA_LATITUDE_RADIANS - solarDeclination);
+  const summerSolsticeNoonLight = Math.cos(LA_LATITUDE_RADIANS - EARTH_AXIAL_TILT_RADIANS);
+  const daylightPeak = THREE.MathUtils.clamp(seasonalNoonLight / summerSolsticeNoonLight, 0, 1);
+  const seasonNames = ['Spring', 'Summer', 'Autumn', 'Winter'];
+  const season = seasonNames[Math.floor(yearProgress * seasonNames.length) % seasonNames.length];
+
+  // Count half of each one-minute twilight toward the daylight span. This
+  // preserves the 12-minute total and the original 5/1/5/1 equinox schedule.
+  const daylightPlateauSeconds = daylightMinutes * 60 - TWILIGHT_SECONDS;
+  const nightPlateauSeconds = DAY_NIGHT_CYCLE_SECONDS - daylightMinutes * 60 - TWILIGHT_SECONDS;
+  const cycleTime = mod(pacificSeconds, DAY_NIGHT_CYCLE_SECONDS);
+  const dayIndex = Math.floor(lunarElapsedSeconds / DAY_NIGHT_CYCLE_SECONDS) + 1;
+  const moonPhase = describeMoonPhase(lunarProgress);
+  const smoothStep = value => value * value * (3 - 2 * value);
+  const duskStart = daylightPlateauSeconds;
+  const nightStart = duskStart + TWILIGHT_SECONDS;
+  const dawnStart = nightStart + nightPlateauSeconds;
+  let phase;
+  let level;
+  if (cycleTime < duskStart) {
+    phase = 'Daylight';
+    level = daylightPeak;
+  } else if (cycleTime < nightStart) {
+    phase = 'Dusk';
+    const transition = (cycleTime - duskStart) / TWILIGHT_SECONDS;
+    level = daylightPeak + (nightMinimum - daylightPeak) * smoothStep(transition);
+  } else if (cycleTime < dawnStart) {
+    phase = 'Night';
+    level = nightMinimum;
+  } else {
+    phase = 'Dawn';
+    const transition = (cycleTime - dawnStart) / TWILIGHT_SECONDS;
+    level = nightMinimum + (daylightPeak - nightMinimum) * smoothStep(transition);
+  }
+  return { level, phase, dayIndex, moonPhase, nightMinimum, season, daylightHours, daylightMinutes, daylightPeak, yearProgress };
+}
+
+function formatLightPercent(level) {
+  return `${(level * 100).toFixed(1)}%`;
+}
+
+function applyCenterTubeLightLevel(level) {
+  const nextLevel = THREE.MathUtils.clamp(level, 0, 1);
+  if (Number.isFinite(lastAppliedCenterTubeLightLevel) && Math.abs(nextLevel - lastAppliedCenterTubeLightLevel) < 1e-7) return;
+  centerTubeLightLevel = nextLevel;
+  lastAppliedCenterTubeLightLevel = nextLevel;
+  centerTubeLightValue.textContent = formatLightPercent(centerTubeLightLevel);
+  tubeLightReadout.textContent = formatLightPercent(centerTubeLightLevel);
 
   axisDiffuserMaterial.emissiveIntensity = 2.2 * centerTubeLightLevel;
   axisBeaconMaterial.emissiveIntensity = 1.15 * centerTubeLightLevel;
@@ -1992,6 +2113,39 @@ function updateCenterTubeLightLevel() {
     nightInteriorBackground,
     Math.pow(1 - centerTubeLightLevel, 0.82),
   );
+}
+
+function updateDayNightCycle(nowMs = Date.now()) {
+  const schedule = getDayNightSchedule(nowMs);
+  if (!manualTubeLightOverride) {
+    const sliderValue = String(Math.round(schedule.level * 100));
+    if (centerTubeLightSlider.value !== sliderValue) centerTubeLightSlider.value = sliderValue;
+    applyCenterTubeLightLevel(schedule.level);
+    const stateText = `${schedule.phase} · CYCLE`;
+    const detailText = `Day ${String(schedule.dayIndex).padStart(2, '0')} / 30 · ${schedule.moonPhase}`;
+    if (dayNightState.textContent !== stateText) dayNightState.textContent = stateText;
+    if (dayNightDetail.textContent !== detailText) dayNightDetail.textContent = detailText;
+  } else {
+    applyCenterTubeLightLevel(Number(centerTubeLightSlider.value) / 100);
+    const detailText = `Cycle: ${schedule.phase.toLowerCase()} · Day ${String(schedule.dayIndex).padStart(2, '0')} / 30 · ${schedule.moonPhase}`;
+    if (dayNightState.textContent !== 'MANUAL OVERRIDE') dayNightState.textContent = 'MANUAL OVERRIDE';
+    if (dayNightDetail.textContent !== detailText) dayNightDetail.textContent = detailText;
+  }
+  const seasonText = `${schedule.season} · ${schedule.daylightHours.toFixed(1)} h daylight · ${(schedule.daylightPeak * 100).toFixed(0)}% peak`;
+  if (seasonalReadout.textContent !== seasonText) seasonalReadout.textContent = seasonText;
+  const mode = manualTubeLightOverride ? 'manual' : 'cycle';
+  if (dayNightHud.dataset.mode !== mode) dayNightHud.dataset.mode = mode;
+  resumeDayNightCycleButton.hidden = !manualTubeLightOverride;
+}
+
+function overrideCenterTubeLightLevel() {
+  manualTubeLightOverride = true;
+  updateDayNightCycle(Date.now());
+}
+
+function resumeDayNightCycle() {
+  manualTubeLightOverride = false;
+  updateDayNightCycle(Date.now());
 }
 
 function settingAtPath(config, path) {
@@ -2459,14 +2613,15 @@ document.querySelector('#tram-interact').addEventListener('click', () => { inter
 runningSpeedSlider.addEventListener('input', updateRunningSpeed);
 flyingSpeedSlider.addEventListener('input', updateFlyingSpeed);
 flightModeSelect.addEventListener('change', () => setFlightMode(flightModeSelect.value));
-centerTubeLightSlider.addEventListener('input', updateCenterTubeLightLevel);
+centerTubeLightSlider.addEventListener('input', overrideCenterTubeLightLevel);
+resumeDayNightCycleButton.addEventListener('click', resumeDayNightCycle);
 legacySceneFillToggle.addEventListener('change', () => {
   hemisphere.visible = legacySceneFillToggle.checked;
   sunlight.visible = legacySceneFillToggle.checked;
 });
 updateRunningSpeed();
 updateFlyingSpeed();
-updateCenterTubeLightLevel();
+updateDayNightCycle();
 terrainRangeSlider.addEventListener('input', () => {
   updateTerrainRange();
   scheduleViewRangeRefresh();
@@ -2990,6 +3145,7 @@ function frame(now) {
     processChunkQueue();
   }
   if (ready) step(dt);
+  updateDayNightCycle();
   updateLandmarkVisibility();
   updateHud(now);
   renderer.render(scene, camera);

@@ -317,6 +317,55 @@ h1, h2, p { margin-top: 0; }
   line-height: 1;
 }
 
+#day-night-hud {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border: 1px solid rgb(50 76 56 / 22%);
+  border-radius: 8px;
+  background: rgb(244 247 236 / 88%);
+  color: #36533c;
+  font-variant-numeric: tabular-nums;
+}
+
+#day-night-labels {
+  display: grid;
+  gap: 3px;
+}
+
+#day-night-state {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .09em;
+}
+
+#day-night-detail {
+  color: #63776b;
+  font-size: 8px;
+  line-height: 1.2;
+}
+
+#seasonal-readout {
+  color: #66736a;
+  font-size: 7.5px;
+  line-height: 1.2;
+}
+
+#tube-light-readout {
+  color: #36533c;
+  font-size: 15px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+#day-night-hud[data-mode="manual"] {
+  border-color: rgb(157 115 60 / 38%);
+  background: rgb(250 242 225 / 92%);
+}
+
 #hint {
   position: fixed;
   z-index: 3;
@@ -470,6 +519,8 @@ h1, h2, p { margin-top: 0; }
 
 #running-speed-value, #flying-speed-value, #center-tube-light-value, #terrain-range-value, #scenery-range-value { color: #587755; font-variant-numeric: tabular-nums; }
 
+#tube-light-readout { font-variant-numeric: tabular-nums; }
+
 #flight-mode {
   min-width: 140px;
   padding: 6px 8px;
@@ -508,6 +559,58 @@ h1, h2, p { margin-top: 0; }
   color: #78877d;
   font-size: 11px;
   line-height: 1.4;
+}
+
+#resume-day-night-cycle {
+  margin-top: 10px;
+  padding: 8px 11px;
+  border: 1px solid rgb(50 76 56 / 30%);
+  border-radius: 8px;
+  background: #edf2e8;
+  color: #36533c;
+  font: 700 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+#resume-day-night-cycle:hover,
+#resume-day-night-cycle:focus-visible {
+  background: #e1ebdc;
+  outline: 2px solid rgb(74 111 78 / 35%);
+  outline-offset: 1px;
+}
+
+#resume-day-night-cycle[hidden] { display: none; }
+
+#seasonal-profile-panel {
+  margin-top: 12px;
+  padding: 11px 0 0;
+  border-top: 1px solid #dce4d9;
+}
+
+#seasonal-profile-panel summary {
+  color: #34493e;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+#seasonal-profile-figure {
+  margin: 10px 0 0;
+}
+
+#seasonal-profile-figure img {
+  display: block;
+  width: 100%;
+  border: 1px solid #dce4d9;
+  border-radius: 8px;
+  background: #fbfcf8;
+}
+
+#seasonal-profile-figure figcaption {
+  margin-top: 5px;
+  color: #78877d;
+  font-size: 9px;
+  line-height: 1.3;
 }
 
 .speed-range-labels {
@@ -697,6 +800,10 @@ h1, h2, p { margin-top: 0; }
   #altimeter-hud { gap: 6px; margin-top: 6px; padding: 6px 8px; }
   #altimeter-value { font-size: 16px; }
   #altimeter-label, #altimeter-reference, #altimeter-feet { font-size: 7px; }
+  #day-night-hud { gap: 6px; margin-top: 5px; padding: 6px 8px; }
+  #day-night-state, #day-night-detail { font-size: 7px; }
+  #seasonal-readout { font-size: 6.5px; }
+  #tube-light-readout { font-size: 13px; }
   #heading-compass { top: 91px; right: 12px; width: 116px; gap: 4px; padding: 8px; }
   #compass-rose { width: 78px; height: 78px; }
   .compass-axis-plus { top: 3px; }

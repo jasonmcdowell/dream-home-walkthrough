@@ -43,6 +43,14 @@
         <span id="altimeter-feet">0 ft</span>
       </div>
     </div>
+    <div id="day-night-hud" aria-label="Habitat light cycle">
+      <div id="day-night-labels">
+        <span id="day-night-state">DAYLIGHT · CYCLE</span>
+        <span id="day-night-detail">Day 01 / 30 · New moon</span>
+        <span id="seasonal-readout">Spring · 12.0 h daylight · 84% peak</span>
+      </div>
+      <output id="tube-light-readout">100.0%</output>
+    </div>
   </header>
   <aside id="heading-compass" aria-label="Cylinder heading">
     <p class="compass-title">CYLINDER HEADING</p>
@@ -109,8 +117,17 @@
       <output id="center-tube-light-value" for="center-tube-light-level">100%</output>
     </label>
     <input id="center-tube-light-level" type="range" min="0" max="100" step="1" value="100" aria-describedby="center-tube-light-note">
-    <div class="speed-range-labels"><span>Night · 0%</span><span>Daylight · 100%</span></div>
-    <p class="view-range-note" id="center-tube-light-note">Dims the tube panels and their habitat lights. Seeded building windows glow more brightly as the tube dims.</p>
+    <div class="speed-range-labels"><span>Off · 0%</span><span>Full · 100%</span></div>
+    <p class="view-range-note" id="center-tube-light-note">The schedule follows Pacific time and changes with the Los Angeles seasonal profile. Moving the slider pauses both lunar and seasonal lighting and sets a manual level.</p>
+    <button id="resume-day-night-cycle" type="button" hidden>Resume day-night cycle</button>
+    <details id="seasonal-profile-panel">
+      <summary>Los Angeles seasonal profile</summary>
+      <p class="view-range-note">A cylinder year is a repeating 72-hour Pacific-calendar block, starting at spring equinox. Day length follows the Sun's declination at Los Angeles latitude (34.0522° N); peak tube output follows noon sunlight relative to summer. Twilight fades remain one minute each.</p>
+      <figure id="seasonal-profile-figure">
+        <img src="seasonal-profile.svg" alt="A graph of seasonal daylight duration and tube brightness over the 72-hour O'Neill cylinder year at Los Angeles latitude.">
+        <figcaption>Earth-equivalent daylight, seasonal daytime peak, and the repeating lunar night minimum.</figcaption>
+      </figure>
+    </details>
     <label class="run-speed-label view-range-label legacy-fill-toggle" for="legacy-scene-fill">
       <span>Supplemental sky / ground fill</span>
       <input id="legacy-scene-fill" type="checkbox" aria-describedby="legacy-scene-fill-note">
@@ -225,7 +242,7 @@
       <div><dt>LT / L2 · RT / R2</dt><dd>Throttle · brake; speed holds when released</dd></div>
       <div><dt>E / Y / Triangle</dt><dd>Board / leave the center-axis tram</dd></div>
     </dl>
-    <p class="controls-footer">The axial white light panels are the active sunlight approximation. Terrain, trees, buildings, roads, water, and the low-resolution far-surface mesh respond to its direct lighting; they do not receive bounced light or cast shadows. The center-tube slider also darkens the interior backdrop and fog. Building windows brighten as the tube dims, but they do not light nearby surfaces. The supplemental sky / ground fill checkbox adds the former hemisphere and warm global light for comparison; the slider dims those too. The gravity field is 9.8 m/s² at local ground and decreases linearly to 3 m/s² at the axis; powered flight suspends gravity. The soil-depth setting is the shell depth behind the generated ground surface. The compass uses 0° for the +Z endcap and increases toward spinward; −Z is the opposite endcap. At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside Minecraft mode, Space or A / Cross rises and Ctrl or B / Circle lowers. Camera-directed flight uses the same mapping inside and outside: W / left stick forward follows the camera, S reverses, A / D strafe along camera-right, and aiming up or down makes you climb or dive. Outside has no habitat gravity. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
+    <p class="controls-footer">The axial white light panels are the active sunlight approximation. The automatic 12-minute day/night cycle follows Pacific local time. At the spring and autumn equinoxes it has five minutes of daylight, one minute each for dusk and dawn, and five minutes of night; the Los Angeles seasonal profile lengthens daylight in summer and shortens it in winter while keeping each twilight fade at one minute. Peak daytime tube brightness also varies with the noon solar elevation at 34.0522° N. A repeating 72-hour cylinder year starts at spring equinox on a Pacific three-day calendar boundary. The six-hour lunar cycle sets the night minimum smoothly from 1% at new moon to 15% at full moon and back; the HUD shows the current cycle day and light level. Move the center-tube slider to pause the schedule and set a manual brightness; choose Resume day-night cycle to return to the current Pacific-time phase. Terrain, trees, buildings, roads, water, and the low-resolution far-surface mesh respond to direct lighting; they do not receive bounced light or cast shadows. The center-tube slider also darkens the interior backdrop and fog. Building windows brighten as the tube dims, but they do not light nearby surfaces. The supplemental sky / ground fill checkbox adds the former hemisphere and warm global light for comparison; the slider dims those too. The gravity field is 9.8 m/s² at local ground and decreases linearly to 3 m/s² at the axis; powered flight suspends gravity. The soil-depth setting is the shell depth behind the generated ground surface. The compass uses 0° for the +Z endcap and increases toward spinward; −Z is the opposite endcap. At the axis tram, press E or Y / Triangle to ride to an end-cap airlock. Leave the open doors clear and follow the tunnel outward into zero-G space, up to 1,000 m from the hull. Outside Minecraft mode, Space or A / Cross rises and Ctrl or B / Circle lowers. Camera-directed flight uses the same mapping inside and outside: W / left stick forward follows the camera, S reverses, A / D strafe along camera-right, and aiming up or down makes you climb or dive. Outside has no habitat gravity. While flying inside, pass through the axis to the opposite side; your view stays upside down until you leave flight and land, when gravity turns the ground down. Press H, R1, or Options again to close.</p>
   </aside>
   <div id="loading" role="status">
     <div class="loading-card">
@@ -235,6 +252,6 @@
       <div class="progress-track"><div id="progress"></div></div>
     </div>
   </div>
-  <script type="module" src="app.js?v=tube-dimmer-building-lights-20260924"></script>
+  <script type="module" src="app.js?v=la-seasonal-lighting-20260925"></script>
 </body>
 </html>
