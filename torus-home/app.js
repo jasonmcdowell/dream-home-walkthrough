@@ -2183,12 +2183,12 @@ try {
   ready = true;
   setGamepadInfo(findGamepad());
   // Loading is the only gate. Once the collision map and view tools are ready,
-  // begin in the living room immediately; the controls remain open as a
-  // translucent HUD, but keyboard/controller movement is already live.
+  // begin in the living room immediately; display options start closed, but
+  // keyboard/controller movement is already live.
   mode = 'playing';
   menu.hidden = true;
   hud.hidden = false;
-  document.body.classList.add('playing', 'hud-options-open');
+  document.body.classList.add('playing');
   updateTouchControlsVisibility();
   // Pointer lock requires a user gesture. Until the user clicks the canvas,
   // allow the existing drag-to-look fallback while keyboard/controller input
